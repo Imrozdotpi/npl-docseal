@@ -2,10 +2,19 @@ from pathlib import Path
 from datetime import datetime
 import subprocess
 import platform
+import os
 
 
-# OpenTimestamps executable inside WSL
-OTS_PATH = "/home/touch_hp_840/.local/bin/ots"
+# OpenTimestamps executable path
+OTS_PATH = os.environ.get(
+    "OTS_PATH",
+    str(Path.home() / ".local/bin/ots")
+)
+
+if not Path(OTS_PATH).exists():
+    raise RuntimeError(
+        f"OpenTimestamps executable not found: {OTS_PATH}"
+    )
 
 
 class TimestampError(Exception):
@@ -37,7 +46,7 @@ def _windows_to_wsl_path(filepath: str) -> str:
 
     path_str = str(path)
 
-    # Already a Linux/WSL path
+    # Already Linux/WSL path
     if path_str.startswith("/"):
         return path_str
 
@@ -52,13 +61,12 @@ def _windows_to_wsl_path(filepath: str) -> str:
 def _run_wsl_command(args: list[str]) -> str:
     """
     Execute command and return combined stdout/stderr.
-    Supports both:
 
-    Windows Python -> WSL
-    WSL Python     -> Native execution
+    Supports:
+    - Windows Python -> WSL
+    - WSL Python -> Native execution
     """
 
-    # Running inside Linux/WSL
     if platform.system() == "Linux":
 
         result = subprocess.run(
@@ -87,10 +95,10 @@ def _run_wsl_command(args: list[str]) -> str:
 
 def stamp_file(filepath: str) -> str:
     """
-    Create OpenTimestamps proof.
+    Create an OpenTimestamps proof.
 
     Returns:
-        Path to .ots file
+        Path to generated .ots file.
     """
 
     file_path = Path(filepath).resolve()
@@ -111,7 +119,6 @@ def stamp_file(filepath: str) -> str:
     ots_path = str(file_path) + ".ots"
 
     if not Path(ots_path).exists():
-
         raise TimestampError(
             f"Timestamp creation failed:\n{output}"
         )
@@ -121,11 +128,11 @@ def stamp_file(filepath: str) -> str:
 
 def upgrade_timestamp(ots_path: str) -> bool:
     """
-    Upgrade timestamp proof.
+    Attempt to upgrade a timestamp.
 
     Returns:
-        True  -> upgraded or complete
-        False -> still pending
+        True  -> timestamp upgraded or complete
+        False -> still waiting for Bitcoin confirmation
     """
 
     ots_file = Path(ots_path).resolve()
@@ -143,7 +150,7 @@ def upgrade_timestamp(ots_path: str) -> bool:
         ]
     )
 
-    if "Pending confirmation" in output:
+    if "pending" in output.lower():
         return False
 
     return True
@@ -151,7 +158,7 @@ def upgrade_timestamp(ots_path: str) -> bool:
 
 def get_timestamp_info(ots_path: str) -> str:
     """
-    Return raw OTS info output.
+    Return raw OpenTimestamps info output.
     """
 
     ots_file = Path(ots_path).resolve()
@@ -197,8 +204,9 @@ def verify_timestamp(ots_path: str) -> dict:
         ]
     )
 
-    if "Pending confirmation" in output:
+    output_lower = output.lower()
 
+    if "pending" in output_lower:
         return {
             "status": "pending",
             "timestamp": None,
@@ -206,11 +214,10 @@ def verify_timestamp(ots_path: str) -> dict:
         }
 
     if (
-        "Bitcoin block" in output
-        or "Success" in output
-        or "verified" in output.lower()
+        "bitcoin block" in output_lower
+        or "success" in output_lower
+        or "verified" in output_lower
     ):
-
         return {
             "status": "confirmed",
             "timestamp": datetime.utcnow(),
