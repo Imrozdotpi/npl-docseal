@@ -1,0 +1,3 @@
+python cli.py seal test.txt --password karan --keypass karan
+python cli.py check test.txt
+python -c "from core.encryptor import decrypt_file; print(decrypt_file('sealed\\test.txt.enc','karan'))"
