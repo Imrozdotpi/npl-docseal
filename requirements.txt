@@ -1,2 +1,5 @@
 cryptography
 opentimestamps-client
+fastapi
+uvicorn
+python-multipart
