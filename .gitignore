@@ -3,3 +3,4 @@ sealed/
 __pycache__/
 *.pyc
 .env
+ots-env/

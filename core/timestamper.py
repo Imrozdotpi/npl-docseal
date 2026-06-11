@@ -5,21 +5,62 @@ import platform
 import os
 
 
-# OpenTimestamps executable path
+def _get_ots_path() -> str:
+    """
+    Return OpenTimestamps executable path.
+
+    Windows:
+        Use the WSL installation path.
+
+    Linux/WSL:
+        Use the native installation path.
+    """
+
+    if platform.system() == "Windows":
+        return "/home/touch_hp_840/.local/bin/ots"
+
+    return str(Path.home() / ".local/bin/ots")
+
+
 OTS_PATH = os.environ.get(
     "OTS_PATH",
-    str(Path.home() / ".local/bin/ots")
+    _get_ots_path()
 )
-
-if not Path(OTS_PATH).exists():
-    raise RuntimeError(
-        f"OpenTimestamps executable not found: {OTS_PATH}"
-    )
 
 
 class TimestampError(Exception):
     """Raised when OpenTimestamps operations fail."""
     pass
+
+
+def _check_ots():
+    """
+    Verify that the OpenTimestamps executable exists.
+    """
+
+    if platform.system() == "Linux":
+
+        if not Path(OTS_PATH).exists():
+            raise TimestampError(
+                f"OpenTimestamps executable not found: {OTS_PATH}"
+            )
+
+    else:
+
+        result = subprocess.run(
+            [
+                "wsl",
+                "test",
+                "-x",
+                OTS_PATH
+            ],
+            capture_output=True
+        )
+
+        if result.returncode != 0:
+            raise TimestampError(
+                f"OpenTimestamps executable not found: {OTS_PATH}"
+            )
 
 
 def _windows_to_wsl_path(filepath: str) -> str:
@@ -101,6 +142,8 @@ def stamp_file(filepath: str) -> str:
         Path to generated .ots file.
     """
 
+    _check_ots()
+
     file_path = Path(filepath).resolve()
 
     if not file_path.exists():
@@ -135,6 +178,8 @@ def upgrade_timestamp(ots_path: str) -> bool:
         False -> still waiting for Bitcoin confirmation
     """
 
+    _check_ots()
+
     ots_file = Path(ots_path).resolve()
 
     if not ots_file.exists():
@@ -160,6 +205,8 @@ def get_timestamp_info(ots_path: str) -> str:
     """
     Return raw OpenTimestamps info output.
     """
+
+    _check_ots()
 
     ots_file = Path(ots_path).resolve()
 
@@ -188,6 +235,8 @@ def verify_timestamp(ots_path: str) -> dict:
         "block_height": int | None
     }
     """
+
+    _check_ots()
 
     ots_file = Path(ots_path).resolve()
 
