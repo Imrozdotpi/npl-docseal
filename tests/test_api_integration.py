@@ -7,25 +7,79 @@ import requests
 
 API_URL = "http://127.0.0.1:8000"
 
+def create_modified_zip(src_zip, dest_zip, remove_files=None, add_files=None, modify_files=None):
+    """
+    Helper to extract a ZIP, modify its contents (remove, add, or tamper files), and rebuild it.
+    """
+    temp_extract = Path("tests/zip_temp")
+    temp_extract.mkdir(exist_ok=True)
+    
+    try:
+        # Extract original ZIP
+        with zipfile.ZipFile(src_zip, 'r') as zipf:
+            zipf.extractall(temp_extract)
+            
+        # Perform removals
+        if remove_files:
+            for f in remove_files:
+                p = temp_extract / f
+                if p.exists():
+                    os.remove(p)
+                    
+        # Perform additions
+        if add_files:
+            for name, content in add_files.items():
+                with open(temp_extract / name, "wb") as f:
+                    f.write(content)
+                    
+        # Perform modifications (tampering)
+        if modify_files:
+            for name, modifier in modify_files.items():
+                p = temp_extract / name
+                if p.exists():
+                    with open(p, "rb") as f:
+                        data = f.read()
+                    with open(p, "wb") as f:
+                        f.write(modifier(data))
+                        
+        # Rebuild ZIP
+        with zipfile.ZipFile(dest_zip, 'w') as zipf:
+            for root, dirs, files in os.walk(temp_extract):
+                for file in files:
+                    zipf.write(Path(root) / file, arcname=file)
+    finally:
+        if temp_extract.exists():
+            shutil.rmtree(temp_extract)
+
+
 def run_tests():
     print("==================================================")
     print("STARTING NPL DOCSEAL API INTEGRATION TESTS")
     print("==================================================")
     
+    # Create temp directories
+    tests_dir = Path("tests")
+    tests_dir.mkdir(exist_ok=True)
+    
     # 1. Create a dummy document for testing
-    test_doc_path = Path("tests/integration_test_doc.pdf")
+    test_doc_path = tests_dir / "integration_test_doc.pdf"
     test_content = b"CONFIDENTIAL NATIONAL PHYSICAL LABORATORY SECURITY DOCUMENT - LEVEL 5"
     with open(test_doc_path, "wb") as f:
         f.write(test_content)
     
     print(f"[TEST] Created dummy test document: {test_doc_path}")
 
-    # Temporary directory to hold extracted files
-    extract_dir = Path("tests/extracted_temp")
-    extract_dir.mkdir(exist_ok=True)
+    # File paths for testing payloads
+    sealed_zip = tests_dir / "sealed_payload.zip"
+    tampered_sig_zip = tests_dir / "tampered_sig.zip"
+    tampered_ots_zip = tests_dir / "tampered_ots.zip"
+    missing_pub_zip = tests_dir / "missing_pub.zip"
+    missing_sig_zip = tests_dir / "missing_sig.zip"
+    duplicate_enc_zip = tests_dir / "duplicate_enc.zip"
+    duplicate_ots_zip = tests_dir / "duplicate_ots.zip"
     
     try:
-        # 2. Test Sealing
+        # 2. Test Sealing (Creates sealed ZIP)
         print("\n[TEST 1] Sealing Document via /api/seal...")
         with open(test_doc_path, "rb") as doc_file:
             files = {"document": ("integration_test_doc.pdf", doc_file, "application/pdf")}
@@ -44,35 +98,18 @@ def run_tests():
         print(f"  - Received ZIP Archive: {zip_filename}")
         
         # Save ZIP file
-        zip_path = Path("tests/sealed_payload.zip")
-        with open(zip_path, "wb") as f:
+        with open(sealed_zip, "wb") as f:
             f.write(base64.b64decode(zip_data_b64))
-            
-        # Extract files from ZIP
-        with zipfile.ZipFile(zip_path, 'r') as zipf:
-            zipf.extractall(extract_dir)
-            
-        enc_file = extract_dir / "integration_test_doc.pdf.enc"
-        sig_file = extract_dir / "integration_test_doc.pdf.sig"
-        ots_file = extract_dir / "integration_test_doc.pdf.ots"
-        
-        assert enc_file.exists(), "Encrypted file missing in ZIP"
-        assert sig_file.exists(), "Signature file missing in ZIP"
-        assert ots_file.exists(), "Timestamp file missing in ZIP"
-        print("  - Successfully extracted .enc, .sig, and .ots from ZIP package.")
-        
-        # 3. Test Successful Verification & Recovery
-        print("\n[TEST 2] Verifying & Recovering Document (Valid Run)...")
-        with open(enc_file, "rb") as fe, open(sig_file, "rb") as fs, open(ots_file, "rb") as fo:
-            files = {
-                "document_enc": ("integration_test_doc.pdf.enc", fe, "application/octet-stream"),
-                "document_sig": ("integration_test_doc.pdf.sig", fs, "application/octet-stream"),
-                "document_ots": ("integration_test_doc.pdf.ots", fo, "application/octet-stream")
-            }
+        print(f"  - Saved sealed ZIP package to: {sealed_zip}")
+
+        # 3. Test Successful Verification using single ZIP
+        print("\n[TEST 2] Verifying & Recovering Document (Valid Single ZIP Run)...")
+        with open(sealed_zip, "rb") as fz:
+            files = {"document_zip": ("sealed_payload.zip", fz, "application/zip")}
             data = {"password": "karan"}
             response = requests.post(f"{API_URL}/api/verify", files=files, data=data)
             
-        assert response.status_code == 200, f"Verify failed: {response.text}"
+        assert response.status_code == 200, f"Verify failed with status {response.status_code}: {response.text}"
         res_json = response.json()
         report = res_json["report"]
         
@@ -93,12 +130,8 @@ def run_tests():
 
         # 4. Test Tamper Detection: Incorrect Password
         print("\n[TEST 3] Tamper Detection: Incorrect Password...")
-        with open(enc_file, "rb") as fe, open(sig_file, "rb") as fs, open(ots_file, "rb") as fo:
-            files = {
-                "document_enc": ("integration_test_doc.pdf.enc", fe, "application/octet-stream"),
-                "document_sig": ("integration_test_doc.pdf.sig", fs, "application/octet-stream"),
-                "document_ots": ("integration_test_doc.pdf.ots", fo, "application/octet-stream")
-            }
+        with open(sealed_zip, "rb") as fz:
+            files = {"document_zip": ("sealed_payload.zip", fz, "application/zip")}
             data = {"password": "wrong_password_abc"}
             response = requests.post(f"{API_URL}/api/verify", files=files, data=data)
             
@@ -115,24 +148,24 @@ def run_tests():
         assert res_json["decrypted_data"] is None
         print("  - Correctly identified decryption failure and flagged as compromised.")
 
-        # 5. Test Tamper Detection: Modified Signature File
+        # 5. Test Tamper Detection: Modified Signature inside ZIP
         print("\n[TEST 4] Tamper Detection: Modified Signature...")
-        # Create a tampered signature file
-        tampered_sig_file = extract_dir / "tampered.sig"
-        with open(sig_file, "rb") as fs:
-            sig_bytes = bytearray(fs.read())
-        # Flip a byte in the signature
-        if len(sig_bytes) > 10:
-            sig_bytes[5] ^= 0xFF
-        with open(tampered_sig_file, "wb") as fts:
-            fts.write(sig_bytes)
-
-        with open(enc_file, "rb") as fe, open(tampered_sig_file, "rb") as fs, open(ots_file, "rb") as fo:
-            files = {
-                "document_enc": ("integration_test_doc.pdf.enc", fe, "application/octet-stream"),
-                "document_sig": ("integration_test_doc.pdf.sig", fs, "application/octet-stream"),
-                "document_ots": ("integration_test_doc.pdf.ots", fo, "application/octet-stream")
-            }
+        
+        # Modify signature file bytes inside ZIP (flip a byte)
+        def modify_sig(data):
+            b = bytearray(data)
+            if len(b) > 10:
+                b[5] ^= 0xFF
+            return bytes(b)
+            
+        create_modified_zip(
+            sealed_zip, 
+            tampered_sig_zip, 
+            modify_files={"integration_test_doc.pdf.sig": modify_sig}
+        )
+        
+        with open(tampered_sig_zip, "rb") as fz:
+            files = {"document_zip": ("tampered_sig.zip", fz, "application/zip")}
             data = {"password": "karan"}
             response = requests.post(f"{API_URL}/api/verify", files=files, data=data)
             
@@ -148,25 +181,20 @@ def run_tests():
         assert report["encryption_status"] == "decrypted"
         assert report["signature_status"] == "invalid"
         assert report["authenticity_status"] == "compromised"
-        print("  - Correctly detected signature tampering and flagged as compromised.")
+        print("  - Correctly detected signature tampering inside the ZIP package.")
 
-        # 6. Test Tamper Detection: Modified OpenTimestamp Receipt
+        # 6. Test Tamper Detection: Modified OpenTimestamp Receipt inside ZIP
         print("\n[TEST 5] Tamper Detection: Tampered OpenTimestamp Receipt...")
-        # Create a tampered OTS file
-        tampered_ots_file = extract_dir / "tampered.ots"
-        with open(ots_file, "rb") as fo:
-            ots_bytes = bytearray(fo.read())
-        # Append some garbage bytes
-        ots_bytes.extend(b"TAMPERED_DETAILS")
-        with open(tampered_ots_file, "wb") as fto:
-            fto.write(ots_bytes)
-
-        with open(enc_file, "rb") as fe, open(sig_file, "rb") as fs, open(tampered_ots_file, "rb") as fo:
-            files = {
-                "document_enc": ("integration_test_doc.pdf.enc", fe, "application/octet-stream"),
-                "document_sig": ("integration_test_doc.pdf.sig", fs, "application/octet-stream"),
-                "document_ots": ("integration_test_doc.pdf.ots", fo, "application/octet-stream")
-            }
+        
+        # Modify OTS file bytes inside ZIP (append bytes)
+        create_modified_zip(
+            sealed_zip,
+            tampered_ots_zip,
+            modify_files={"integration_test_doc.pdf.ots": lambda d: d + b"TAMPERED_DETAILS"}
+        )
+        
+        with open(tampered_ots_zip, "rb") as fz:
+            files = {"document_zip": ("tampered_ots.zip", fz, "application/zip")}
             data = {"password": "karan"}
             response = requests.post(f"{API_URL}/api/verify", files=files, data=data)
             
@@ -182,7 +210,74 @@ def run_tests():
         assert report["encryption_status"] == "decrypted"
         assert report["timestamp_status"] == "failed"
         assert report["authenticity_status"] == "compromised"
-        print("  - Correctly identified OpenTimestamp tampering and flagged as compromised.")
+        print("  - Correctly identified OpenTimestamp tampering inside the ZIP package.")
+
+        # =====================================================================
+        # NEGATIVE TESTS FOR MALFORMED ZIP FILES
+        # =====================================================================
+        print("\n[TEST 6] Negative Test: Missing public_key.pem...")
+        create_modified_zip(sealed_zip, missing_pub_zip, remove_files=["public_key.pem"])
+        
+        with open(missing_pub_zip, "rb") as fz:
+            files = {"document_zip": ("missing_pub.zip", fz, "application/zip")}
+            data = {"password": "karan"}
+            response = requests.post(f"{API_URL}/api/verify", files=files, data=data)
+            
+        print(f"  - API Response Code: {response.status_code}")
+        print(f"  - Error Detail: {response.text}")
+        assert response.status_code == 400
+        assert "missing public_key.pem" in response.json()["detail"].lower()
+        print("  - Correctly rejected ZIP missing public_key.pem with HTTP 400.")
+
+        print("\n[TEST 7] Negative Test: Missing digital signature (.sig)...")
+        create_modified_zip(sealed_zip, missing_sig_zip, remove_files=["integration_test_doc.pdf.sig"])
+        
+        with open(missing_sig_zip, "rb") as fz:
+            files = {"document_zip": ("missing_sig.zip", fz, "application/zip")}
+            data = {"password": "karan"}
+            response = requests.post(f"{API_URL}/api/verify", files=files, data=data)
+            
+        print(f"  - API Response Code: {response.status_code}")
+        print(f"  - Error Detail: {response.text}")
+        assert response.status_code == 400
+        assert "missing .sig file" in response.json()["detail"].lower()
+        print("  - Correctly rejected ZIP missing digital signature with HTTP 400.")
+
+        print("\n[TEST 8] Negative Test: Multiple/Duplicate encrypted (.enc) files...")
+        create_modified_zip(
+            sealed_zip, 
+            duplicate_enc_zip, 
+            add_files={"extra_document.pdf.enc": b"DUPLICATE_ENCRYPTED_DATA"}
+        )
+        
+        with open(duplicate_enc_zip, "rb") as fz:
+            files = {"document_zip": ("duplicate_enc.zip", fz, "application/zip")}
+            data = {"password": "karan"}
+            response = requests.post(f"{API_URL}/api/verify", files=files, data=data)
+            
+        print(f"  - API Response Code: {response.status_code}")
+        print(f"  - Error Detail: {response.text}")
+        assert response.status_code == 400
+        assert "multiple .enc files found" in response.json()["detail"].lower()
+        print("  - Correctly rejected ZIP with duplicate encrypted payloads with HTTP 400.")
+
+        print("\n[TEST 9] Negative Test: Multiple/Duplicate timestamp (.ots) files...")
+        create_modified_zip(
+            sealed_zip,
+            duplicate_ots_zip,
+            add_files={"extra_proof.pdf.ots": b"DUPLICATE_TIMESTAMP_PROOF"}
+        )
+        
+        with open(duplicate_ots_zip, "rb") as fz:
+            files = {"document_zip": ("duplicate_ots.zip", fz, "application/zip")}
+            data = {"password": "karan"}
+            response = requests.post(f"{API_URL}/api/verify", files=files, data=data)
+            
+        print(f"  - API Response Code: {response.status_code}")
+        print(f"  - Error Detail: {response.text}")
+        assert response.status_code == 400
+        assert "multiple .ots files found" in response.json()["detail"].lower()
+        print("  - Correctly rejected ZIP with duplicate timestamp proofs with HTTP 400.")
 
         print("\n==================================================")
         print("ALL API INTEGRATION TESTS PASSED SUCCESSFULLY!")
@@ -191,12 +286,12 @@ def run_tests():
     finally:
         # Clean up temporary test files
         print("\n[CLEANUP] Removing generated test payloads...")
-        if test_doc_path.exists():
-            os.remove(test_doc_path)
-        if Path("tests/sealed_payload.zip").exists():
-            os.remove("tests/sealed_payload.zip")
-        if extract_dir.exists():
-            shutil.rmtree(extract_dir)
+        for p in [
+            test_doc_path, sealed_zip, tampered_sig_zip, tampered_ots_zip, 
+            missing_pub_zip, missing_sig_zip, duplicate_enc_zip, duplicate_ots_zip
+        ]:
+            if p.exists():
+                os.remove(p)
 
 if __name__ == "__main__":
     run_tests()

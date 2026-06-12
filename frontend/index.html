@@ -164,47 +164,18 @@
                         <div class="card input-card">
                             <h3>Upload Verification Assets</h3>
                             
-                            <!-- 1. Upload .enc -->
+                            <!-- Sealed ZIP Package (.zip) -->
                             <div class="form-group file-field">
-                                <label>Encrypted File (.enc)</label>
-                                <label for="enc-upload" class="field-dropzone" id="enc-dropzone">
-                                    <input type="file" id="enc-upload" accept=".enc" style="display: none;">
+                                <label>Sealed ZIP Package (.zip)</label>
+                                <label for="zip-upload" class="field-dropzone" id="zip-dropzone">
+                                    <input type="file" id="zip-upload" accept=".zip" style="display: none;">
                                     <div class="field-dropzone-inner">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                                            <line x1="12" y1="22.08" x2="12" y2="12"/>
                                         </svg>
-                                        <span id="enc-file-label">Upload .enc document</span>
-                                    </div>
-                                </label>
-                            </div>
-
-                            <!-- 2. Upload .sig -->
-                            <div class="form-group file-field">
-                                <label>RSA-PSS Digital Signature (.sig)</label>
-                                <label for="sig-upload" class="field-dropzone" id="sig-dropzone">
-                                    <input type="file" id="sig-upload" accept=".sig" style="display: none;">
-                                    <div class="field-dropzone-inner">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                                            <path d="M20 11.08V12a8 8 0 1 1-4.8-7.32"/>
-                                            <polyline points="22 4 12 14.01 9 11.01"/>
-                                        </svg>
-                                        <span id="sig-file-label">Upload .sig signature</span>
-                                    </div>
-                                </label>
-                            </div>
-
-                            <!-- 3. Upload .ots -->
-                            <div class="form-group file-field">
-                                <label>OpenTimestamp Receipt (.ots)</label>
-                                <label for="ots-upload" class="field-dropzone" id="ots-dropzone">
-                                    <input type="file" id="ots-upload" accept=".ots" style="display: none;">
-                                    <div class="field-dropzone-inner">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                                            <circle cx="12" cy="12" r="10"/>
-                                            <polyline points="12 6 12 12 16 14"/>
-                                        </svg>
-                                        <span id="ots-file-label">Upload .ots proof</span>
+                                        <span id="zip-file-label">Upload sealed ZIP file</span>
                                     </div>
                                 </label>
                             </div>

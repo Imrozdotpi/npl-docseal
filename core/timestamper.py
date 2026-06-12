@@ -7,18 +7,38 @@ import os
 
 def _get_ots_path() -> str:
     """
-    Return OpenTimestamps executable path.
+    Return the OpenTimestamps executable path.
 
     Windows:
-        Use the WSL installation path.
+        Dynamically detect the current WSL user's HOME directory
+        and use ~/.local/bin/ots.
 
     Linux/WSL:
         Use the native installation path.
     """
 
     if platform.system() == "Windows":
-        return "/home/touch_hp_840/.local/bin/ots"
+        try:
+            result = subprocess.run(
+                ["wsl", "sh", "-c", "echo $HOME"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
 
+            wsl_home = result.stdout.strip()
+
+            if not wsl_home:
+                raise RuntimeError("Unable to determine WSL home directory.")
+
+            return f"{wsl_home}/.local/bin/ots"
+
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not determine WSL home directory: {e}"
+            )
+
+    # Native Linux / WSL execution
     return str(Path.home() / ".local/bin/ots")
 
 
