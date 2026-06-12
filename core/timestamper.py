@@ -3,6 +3,7 @@ from datetime import datetime
 import subprocess
 import platform
 import os
+import re
 
 
 def _get_ots_path() -> str:
@@ -215,7 +216,15 @@ def upgrade_timestamp(ots_path: str) -> bool:
         ]
     )
 
-    if "pending" in output.lower():
+    output_lower = output.lower()
+
+    if (
+
+        "pending" in output_lower
+        or "waiting for" in output_lower
+        or "waiting for confirmations" in output_lower
+        or "timestamp not complete" in output_lower
+    ):
         return False
 
     return True
@@ -268,33 +277,52 @@ def verify_timestamp(ots_path: str) -> dict:
     output = _run_wsl_command(
         [
             OTS_PATH,
-            "verify",
+            "info",
             wsl_ots
         ]
     )
 
     output_lower = output.lower()
 
-    if "pending" in output_lower:
+    # ----------------------------
+    # Pending states
+    # ----------------------------
+    if (
+        "pendingattestation" in output_lower
+        or "pending confirmation" in output_lower
+        or "waiting for" in output_lower
+        or "waiting for confirmations" in output_lower
+        or "timestamp not complete" in output_lower
+    ):
         return {
             "status": "pending",
             "timestamp": None,
-            "block_height": None
+            "block_height": None,
         }
 
-    if (
-        "bitcoin block" in output_lower
-        or "success" in output_lower
-        or "verified" in output_lower
-    ):
+    # ----------------------------
+    # Confirmed state
+    # ----------------------------
+    match = re.search(r"bitcoin block\s+(\d+)", output_lower)
+
+    block_height = (
+        int(match.group(1))
+        if match
+        else None
+    )
+
+    if block_height is not None:
         return {
             "status": "confirmed",
-            "timestamp": datetime.utcnow(),
-            "block_height": None
+            "timestamp": None,
+            "block_height": block_height,
         }
 
+    # ----------------------------
+    # Verification failed
+    # ----------------------------
     return {
         "status": "failed",
         "timestamp": None,
-        "block_height": None
+        "block_height": None,
     }

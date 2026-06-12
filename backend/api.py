@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.hasher import hash_file
 from core.signer import sign_file, verify_signature
 from core.encryptor import encrypt_file, decrypt_file
-from core.timestamper import stamp_file, verify_timestamp
+from core.timestamper import stamp_file, verify_timestamp, upgrade_timestamp
 
 app = FastAPI(
     title="NPL DocSeal Dashboard API",
@@ -134,6 +134,9 @@ async def verify_file(
         "encryption_status": "failed",
         "signature_status": "unverified",
         "timestamp_status": "unverified",
+        "timestamp_datetime": None,
+        "block_height": None,
+        "blockchain": "Bitcoin",
         "authenticity_status": "compromised",
         "details": ""
     }
@@ -236,9 +239,21 @@ async def verify_file(
 
         # 3. Verify OpenTimestamp
         try:
+            # Try to upgrade timestamp first
+            try:
+                upgrade_timestamp(temp_ots_name)
+            except Exception:
+                pass
+
             ots_result = verify_timestamp(temp_ots_name)
             status = ots_result.get("status", "failed")
             report["timestamp_status"] = status
+            
+            # Extract dates/block heights
+            ts_dt = ots_result.get("timestamp")
+            report["timestamp_datetime"] = ts_dt.isoformat() if ts_dt else None
+            report["block_height"] = ots_result.get("block_height")
+            report["blockchain"] = "Bitcoin"
             
             if status == "confirmed":
                 report["details"] += "OpenTimestamp Verified (Confirmed on Bitcoin blockchain). "
