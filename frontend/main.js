@@ -299,7 +299,7 @@ async function verifyDocument() {
         if (report.authenticity_status === 'authentic') {
             banner.classList.add('banner-authentic');
             banner.querySelector('.banner-title').textContent = 'AUTHENTICITY VERIFIED';
-            banner.querySelector('.banner-desc').textContent = 'Document integrity, origin, and timestamp validated successfully.';
+            banner.querySelector('.banner-desc').textContent = 'Document integrity, RSA signature, and blockchain timestamp have been successfully verified.';
         } else {
             banner.classList.add('banner-compromised');
             banner.querySelector('.banner-title').textContent = 'SECURITY ALERT: TAMPERED / COMPROMISED';
@@ -336,6 +336,10 @@ async function verifyDocument() {
 
         // 3. Technical report detail logs
         document.getElementById('result-hash').textContent = report.sha256;
+        document.getElementById('result-blockchain').textContent = report.blockchain || 'Bitcoin';
+        document.getElementById('result-timestamp-status').textContent = (report.timestamp_status === 'confirmed' ? 'VERIFIED' : report.timestamp_status.toUpperCase());
+        document.getElementById('result-block-height').textContent = report.block_height ? report.block_height : 'Not yet anchored';
+        document.getElementById('result-timestamp-time').textContent = formatDateTime(report.timestamp_datetime);
         document.getElementById('result-details').textContent = report.details;
 
         // 4. Decrypted download action
@@ -436,5 +440,15 @@ function clearAudit() {
     if (confirm('Are you sure you want to clear all transaction logs?')) {
         localStorage.removeItem('npl_audit_logs');
         loadAuditLogs();
+    }
+}
+
+function formatDateTime(isoStr) {
+    if (!isoStr) return 'Awaiting blockchain anchoring';
+    try {
+        const d = new Date(isoStr);
+        return d.toUTCString();
+    } catch (e) {
+        return isoStr;
     }
 }
