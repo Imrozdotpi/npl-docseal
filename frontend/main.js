@@ -1,9 +1,7 @@
 // State Variables
 let currentTab = 'seal';
 let sealFile = null;
-let verifyEncFile = null;
-let verifySigFile = null;
-let verifyOtsFile = null;
+let verifyZipFile = null;
 
 // Sealed details
 let sealedZipFilename = '';
@@ -75,20 +73,10 @@ function setupDragAndDrop() {
         }
     });
 
-    // 2. Verify Tab File Fields
-    setupFieldDropzone('enc-dropzone', 'enc-upload', '.enc', (file) => {
-        verifyEncFile = file;
-        document.getElementById('enc-file-label').textContent = file.name;
-    });
-    
-    setupFieldDropzone('sig-dropzone', 'sig-upload', '.sig', (file) => {
-        verifySigFile = file;
-        document.getElementById('sig-file-label').textContent = file.name;
-    });
-    
-    setupFieldDropzone('ots-dropzone', 'ots-upload', '.ots', (file) => {
-        verifyOtsFile = file;
-        document.getElementById('ots-file-label').textContent = file.name;
+    // 2. Verify Tab File Fields (Single ZIP)
+    setupFieldDropzone('zip-dropzone', 'zip-upload', '.zip', (file) => {
+        verifyZipFile = file;
+        document.getElementById('zip-file-label').textContent = file.name;
     });
 }
 
@@ -264,8 +252,8 @@ function downloadSealedZip() {
 
 // Action: Verify Document
 async function verifyDocument() {
-    if (!verifyEncFile || !verifySigFile || !verifyOtsFile) {
-        alert('Please upload all three files (.enc, .sig, and .ots) to proceed.');
+    if (!verifyZipFile) {
+        alert('Please upload the sealed ZIP package (.zip) to proceed.');
         return;
     }
     const password = document.getElementById('verify-password').value;
@@ -284,9 +272,7 @@ async function verifyDocument() {
     logToConsole('Initiating verifying operations...', 'info');
 
     const formData = new FormData();
-    formData.append('document_enc', verifyEncFile);
-    formData.append('document_sig', verifySigFile);
-    formData.append('document_ots', verifyOtsFile);
+    formData.append('document_zip', verifyZipFile);
     formData.append('password', password);
 
     try {
@@ -365,7 +351,7 @@ async function verifyDocument() {
         // Add to Audit Log
         const logStatusText = report.authenticity_status === 'authentic' ? 'VERIFIED' : 'TAMPERED';
         const logStatusClass = report.authenticity_status === 'authentic' ? 'success' : 'danger';
-        addAuditRecord(verifyEncFile.name, report.sha256, logStatusText, logStatusClass);
+        addAuditRecord(verifyZipFile.name, report.sha256, logStatusText, logStatusClass);
 
     } catch (error) {
         alert('Server verification request failed: ' + error.message);

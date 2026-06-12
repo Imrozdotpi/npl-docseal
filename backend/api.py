@@ -42,10 +42,12 @@ async def seal_file(
 ):
     """
     Seal document by hashing, signing, timestamping, and encrypting it.
-    Returns the SHA-256 hash and a ZIP file containing the outputs (.enc, .sig, .ots).
+    Returns the SHA-256 hash and a ZIP file containing the outputs (.enc, .sig, .ots, and public_key.pem).
     """
     if not PRIVATE_KEY.exists():
         raise HTTPException(status_code=500, detail="Private key keys/private_key.pem not found on server.")
+    if not PUBLIC_KEY.exists():
+        raise HTTPException(status_code=500, detail="Public key keys/public_key.pem not found on server.")
 
     # Create a temporary directory inside the workspace
     temp_dir = Path(tempfile.mkdtemp(dir="."))
@@ -85,6 +87,8 @@ async def seal_file(
             zipf.write(enc_path, arcname=Path(enc_path).name)
             zipf.write(sig_path, arcname=Path(sig_path).name)
             zipf.write(ots_path, arcname=Path(ots_path).name)
+            # Include public key
+            zipf.write(str(PUBLIC_KEY), arcname="public_key.pem")
 
         # Base64-encode ZIP content for transmission
         with open(zip_path, "rb") as f:
@@ -106,25 +110,23 @@ async def seal_file(
 
 @app.post("/api/verify")
 async def verify_file(
-    document_enc: UploadFile = File(...),
-    document_sig: UploadFile = File(...),
-    document_ots: UploadFile = File(...),
+    document_zip: UploadFile = File(...),
     password: str = Form(...)
 ):
     """
-    Verify & Recover document.
-    Decrypts the .enc file, checks the RSA-PSS signature, checks the OpenTimestamp proof,
-    and returns a detailed audit report alongside the recovered document bytes.
+    Verify & Recover document from a single ZIP package.
+    Extracts the contents, validates package contents strictly, decrypts, and runs
+    cryptographic checks using the sender's public key from the archive.
     """
-    if not PUBLIC_KEY.exists():
-        raise HTTPException(status_code=500, detail="Public key keys/public_key.pem not found on server.")
-
     uuid_str = str(uuid.uuid4())
+    temp_dir = Path(tempfile.mkdtemp(dir="."))
+    temp_zip_path = temp_dir / f"uploaded_{uuid_str}.zip"
     
     # Define names in CWD to match decrypt_file behavior (which saves to path.stem in CWD)
     temp_enc_name = f"temp_{uuid_str}.enc"
     temp_sig_name = f"temp_{uuid_str}.sig"
     temp_ots_name = f"temp_{uuid_str}.ots"
+    temp_pub_name = f"temp_{uuid_str}_pub.pem"
     temp_dec_name = f"temp_{uuid_str}"  # Path(temp_enc_name).stem
     
     report = {
@@ -137,18 +139,68 @@ async def verify_file(
     }
 
     try:
-        # Save uploaded files locally
-        with open(temp_enc_name, "wb") as buffer:
-            shutil.copyfileobj(document_enc.file, buffer)
-        with open(temp_sig_name, "wb") as buffer:
-            shutil.copyfileobj(document_sig.file, buffer)
-        with open(temp_ots_name, "wb") as buffer:
-            shutil.copyfileobj(document_ots.file, buffer)
+        # Save uploaded zip file locally
+        with open(temp_zip_path, "wb") as buffer:
+            shutil.copyfileobj(document_zip.file, buffer)
+
+        # Strict validation of ZIP contents
+        try:
+            with zipfile.ZipFile(temp_zip_path, 'r') as zipf:
+                namelist = zipf.namelist()
+                
+                enc_files = [n for n in namelist if n.endswith('.enc')]
+                sig_files = [n for n in namelist if n.endswith('.sig')]
+                ots_files = [n for n in namelist if n.endswith('.ots')]
+                pub_files = [n for n in namelist if Path(n).name == 'public_key.pem']
+                
+                # Check for public key pem file
+                if len(pub_files) == 0:
+                    raise HTTPException(status_code=400, detail="Invalid NPL DocSeal package: missing public_key.pem")
+                if len(pub_files) > 1:
+                    raise HTTPException(status_code=400, detail="Invalid NPL DocSeal package: multiple public_key.pem files found")
+                
+                # Check for enc file
+                if len(enc_files) == 0:
+                    raise HTTPException(status_code=400, detail="Invalid NPL DocSeal package: missing .enc file")
+                if len(enc_files) > 1:
+                    raise HTTPException(status_code=400, detail="Invalid NPL DocSeal package: multiple .enc files found")
+                
+                # Check for sig file
+                if len(sig_files) == 0:
+                    raise HTTPException(status_code=400, detail="Invalid NPL DocSeal package: missing .sig file")
+                if len(sig_files) > 1:
+                    raise HTTPException(status_code=400, detail="Invalid NPL DocSeal package: multiple .sig files found")
+                
+                # Check for ots file
+                if len(ots_files) == 0:
+                    raise HTTPException(status_code=400, detail="Invalid NPL DocSeal package: missing .ots file")
+                if len(ots_files) > 1:
+                    raise HTTPException(status_code=400, detail="Invalid NPL DocSeal package: multiple .ots files found")
+
+                # Extract ZIP contents to temporary directory
+                zipf.extractall(temp_dir)
+                
+                # Copy targeted files to CWD with UUID prefixes for verification run
+                shutil.copy(str(temp_dir / enc_files[0]), temp_enc_name)
+                shutil.copy(str(temp_dir / sig_files[0]), temp_sig_name)
+                shutil.copy(str(temp_dir / ots_files[0]), temp_ots_name)
+                shutil.copy(str(temp_dir / pub_files[0]), temp_pub_name)
+                
+                # Determine original filename based on the encrypted file name
+                extracted_enc_name = Path(enc_files[0]).name
+                if extracted_enc_name.endswith(".enc"):
+                    original_filename = extracted_enc_name[:-4]
+                else:
+                    original_filename = "recovered_document.pdf"
+
+        except HTTPException as he:
+            raise he
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read or extract ZIP archive: {str(e)}")
 
         # 1. Decrypt document
         try:
             decrypted_filename = decrypt_file(temp_enc_name, password)
-            # Ensure it actually decrypted to temp_dec_name
             decrypted_filepath = Path(decrypted_filename)
             if not decrypted_filepath.exists():
                 raise FileNotFoundError("Decrypted output file not found in workspace.")
@@ -165,16 +217,16 @@ async def verify_file(
                 "report": report
             }
 
-        # 2. Verify Digital Signature
+        # 2. Verify Digital Signature using the extracted public key
         try:
             sig_valid = verify_signature(
                 str(decrypted_filepath),
                 temp_sig_name,
-                str(PUBLIC_KEY)
+                temp_pub_name
             )
             if sig_valid:
                 report["signature_status"] = "valid"
-                report["details"] += "RSA-PSS Signature Valid. "
+                report["details"] += "RSA-PSS Signature Valid (Using sender public key). "
             else:
                 report["signature_status"] = "invalid"
                 report["details"] += "Signature Invalid (Document tampered or signed with different key). "
@@ -213,13 +265,6 @@ async def verify_file(
         with open(decrypted_filepath, "rb") as f:
             decrypted_data_base64 = base64.b64encode(f.read()).decode("utf-8")
 
-        # Determine original filename based on the encrypted file name
-        original_filename = Path(document_enc.filename).name
-        if original_filename.endswith(".enc"):
-            original_filename = original_filename[:-4]
-        else:
-            original_filename = "recovered_document.pdf"
-
         return {
             "decrypted_data": decrypted_data_base64,
             "original_filename": original_filename,
@@ -227,8 +272,13 @@ async def verify_file(
         }
 
     finally:
-        # Securely delete all temporary workspace files
-        for filename in [temp_enc_name, temp_sig_name, temp_ots_name, temp_dec_name]:
+        # Securely clean up the temp directory
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception:
+            pass
+        # Securely delete all temporary workspace files in CWD
+        for filename in [temp_enc_name, temp_sig_name, temp_ots_name, temp_pub_name, temp_dec_name]:
             try:
                 if os.path.exists(filename):
                     os.remove(filename)
@@ -240,9 +290,6 @@ async def verify_file(
 frontend_dir = Path("frontend")
 if frontend_dir.exists():
     app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
-else:
-    # During initial creation, directory might not exist yet, we will mount it later or handle it gracefully
-    pass
 
 if __name__ == "__main__":
     import uvicorn
