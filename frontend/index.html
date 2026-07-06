@@ -89,15 +89,15 @@
                             <!-- PDF Upload Dropzone -->
                             <div class="dropzone-container">
                                 <label for="pdf-upload" class="dropzone" id="seal-dropzone">
-                                    <input type="file" id="pdf-upload" accept="application/pdf" style="display: none;">
+                                    <input type="file" id="pdf-upload" accept="application/pdf,application/xml,.xml" style="display: none;">
                                     <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                                         <polyline points="17 8 12 3 7 8"/>
                                         <line x1="12" y1="3" x2="12" y2="15"/>
                                     </svg>
                                     <div class="dropzone-text">
-                                        <span class="primary-text">Click or Drag PDF here</span>
-                                        <span class="secondary-text">Only PDF files are supported</span>
+                                        <span class="primary-text">Click or Drag PDF or XML here</span>
+                                        <span class="secondary-text">PDF and XML files are supported</span>
                                     </div>
                                 </label>
                                 <div id="seal-file-info" class="selected-file-info" style="display: none;">
@@ -246,6 +246,12 @@
                                         <span class="detail-label">Audit Log:</span>
                                         <span class="detail-value" id="result-details">All cryptographic checks returned success.</span>
                                     </div>
+                                </div>
+
+                                <div class="field-report-box" id="field-report-container" style="display:none;">
+                                    <h4>Field-Level Integrity Report</h4>
+                                    <div id="field-report-rows"></div>
+                                    <div class="field-summary" id="field-summary"></div>
                                 </div>
 
                                 <div class="actions-container">

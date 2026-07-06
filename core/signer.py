@@ -1,9 +1,10 @@
-
 from pathlib import Path
+
 from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
+
 from core.hasher import hash_file
 
 
@@ -30,7 +31,7 @@ def sign_file(
     # Convert hex digest to raw bytes
     digest_bytes = bytes.fromhex(digest_hex)
 
-    # Create RSA-PSS signature
+    # Create RSA-PSS signature over the precomputed hash
     signature = private_key.sign(
         digest_bytes,
         padding.PSS(
@@ -39,7 +40,7 @@ def sign_file(
             ),
             salt_length=padding.PSS.MAX_LENGTH
         ),
-        hashes.SHA256()
+        Prehashed(hashes.SHA256())
     )
 
     # Create .sig filename
@@ -50,6 +51,38 @@ def sign_file(
         f.write(signature)
 
     return sig_path
+
+
+def sign_bytes(
+    data: bytes,
+    private_key_path: str,
+    passphrase: str
+) -> bytes:
+    """
+    Sign precomputed SHA-256 digest bytes directly.
+
+    Used for signing values such as a Merkle root
+    that have already been hashed.
+    """
+
+    with open(private_key_path, "rb") as f:
+        private_key = serialization.load_pem_private_key(
+            f.read(),
+            password=passphrase.encode()
+        )
+
+    signature = private_key.sign(
+        data,
+        padding.PSS(
+            mgf=padding.MGF1(
+                hashes.SHA256()
+            ),
+            salt_length=padding.PSS.MAX_LENGTH
+        ),
+        Prehashed(hashes.SHA256())
+    )
+
+    return signature
 
 
 def verify_signature(
@@ -92,7 +125,45 @@ def verify_signature(
                 ),
                 salt_length=padding.PSS.MAX_LENGTH
             ),
-            hashes.SHA256()
+            Prehashed(hashes.SHA256())
+        )
+
+        return True
+
+    except InvalidSignature:
+
+        return False
+
+
+def verify_bytes(
+    data: bytes,
+    signature: bytes,
+    public_key_path: str
+) -> bool:
+    """
+    Verify precomputed SHA-256 digest bytes directly.
+
+    Used for verifying signatures over values such as
+    a Merkle root.
+    """
+
+    with open(public_key_path, "rb") as f:
+        public_key = serialization.load_pem_public_key(
+            f.read()
+        )
+
+    try:
+
+        public_key.verify(
+            signature,
+            data,
+            padding.PSS(
+                mgf=padding.MGF1(
+                    hashes.SHA256()
+                ),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            Prehashed(hashes.SHA256())
         )
 
         return True

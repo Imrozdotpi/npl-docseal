@@ -52,23 +52,30 @@ function setupDragAndDrop() {
     const sealDropzone = document.getElementById('seal-dropzone');
     const pdfUpload = document.getElementById('pdf-upload');
     
+    const isAllowedSealFile = (file) => {
+        return file.type === 'application/pdf' || 
+               file.type === 'text/xml' || 
+               file.type === 'application/xml' || 
+               file.name.endsWith('.xml');
+    };
+    
     setupDropzoneListeners(sealDropzone, pdfUpload, (file) => {
-        if (file.type === 'application/pdf') {
+        if (isAllowedSealFile(file)) {
             sealFile = file;
             displaySealFileInfo(file.name);
         } else {
-            alert('Only PDF files are supported.');
+            alert('Only PDF and XML files are supported.');
         }
     });
     
     pdfUpload.addEventListener('change', (e) => {
         if (e.target.files.length > 0) {
             const file = e.target.files[0];
-            if (file.type === 'application/pdf') {
+            if (isAllowedSealFile(file)) {
                 sealFile = file;
                 displaySealFileInfo(file.name);
             } else {
-                alert('Only PDF files are supported.');
+                alert('Only PDF and XML files are supported.');
             }
         }
     });
@@ -210,8 +217,10 @@ async function sealDocument() {
         const result = await response.json();
         
         // Log steps with green checks
-        logToConsole(`[SUCCESS] HASH: SHA-256 Generated successfully.`, 'success');
-        logToConsole(`Hash Value: ${result.hash}`, 'info');
+        logToConsole(`[SUCCESS] Merkle Root: ${result.hash}`, 'success');
+        if (result.field_count !== undefined && result.field_count !== null) {
+            logToConsole(`Fields committed: ${result.field_count}`, 'info');
+        }
         logToConsole(`[SUCCESS] SIGNATURE: RSA-PSS Signature Created (using keys/private_key.pem).`, 'success');
         logToConsole(`[SUCCESS] TIMESTAMP: OpenTimestamp Proof Created (.ots timestamp broadcast via WSL).`, 'success');
         logToConsole(`[SUCCESS] ENCRYPTION: AES-256-GCM Encryption Complete (.enc document output).`, 'success');
@@ -287,7 +296,6 @@ async function verifyDocument() {
         }
 
         const result = await response.json();
-        const report = result.report;
 
         // Render Report Card
         resultsState.style.display = 'flex';
@@ -296,7 +304,7 @@ async function verifyDocument() {
         const banner = document.getElementById('banner-authenticity');
         banner.className = 'authenticity-banner'; // Clear previous
         
-        if (report.authenticity_status === 'authentic') {
+        if (result.overall === 'PASS') {
             banner.classList.add('banner-authentic');
             banner.querySelector('.banner-title').textContent = 'AUTHENTICITY VERIFIED';
             banner.querySelector('.banner-desc').textContent = 'Document integrity, RSA signature, and blockchain timestamp have been successfully verified.';
@@ -307,14 +315,15 @@ async function verifyDocument() {
         }
 
         // 2. Status Box breakdowns
-        updateStatusBox('box-encryption', report.encryption_status === 'decrypted' ? 'DECRYPTED' : 'FAILED', report.encryption_status === 'decrypted' ? 'success' : 'danger');
+        const decrypted = (result.fields && Object.keys(result.fields).length > 0);
+        updateStatusBox('box-encryption', decrypted ? 'DECRYPTED' : 'FAILED', decrypted ? 'success' : 'danger');
         
         let sigText = 'INVALID';
         let sigClass = 'danger';
-        if (report.signature_status === 'valid') {
+        if (result.signature_valid === true) {
             sigText = 'VALID';
             sigClass = 'success';
-        } else if (report.signature_status === 'unverified') {
+        } else if (result.signature_valid === 'unverified') {
             sigText = 'UNVERIFIED';
             sigClass = 'warning';
         }
@@ -322,40 +331,87 @@ async function verifyDocument() {
 
         let otsText = 'FAILED';
         let otsClass = 'danger';
-        if (report.timestamp_status === 'confirmed') {
+        const tsStatus = result.timestamp ? result.timestamp.status : 'failed';
+        if (tsStatus === 'confirmed') {
             otsText = 'VERIFIED';
             otsClass = 'success';
-        } else if (report.timestamp_status === 'pending') {
+        } else if (tsStatus === 'pending') {
             otsText = 'PENDING';
             otsClass = 'warning';
-        } else if (report.timestamp_status === 'unverified') {
+        } else if (tsStatus === 'unverified') {
             otsText = 'UNVERIFIED';
             otsClass = 'warning';
         }
         updateStatusBox('box-timestamp', otsText, otsClass);
 
         // 3. Technical report detail logs
-        document.getElementById('result-hash').textContent = report.sha256;
-        document.getElementById('result-blockchain').textContent = report.blockchain || 'Bitcoin';
-        document.getElementById('result-timestamp-status').textContent = (report.timestamp_status === 'confirmed' ? 'VERIFIED' : report.timestamp_status.toUpperCase());
-        document.getElementById('result-block-height').textContent = report.block_height ? report.block_height : 'Not yet anchored';
-        document.getElementById('result-timestamp-time').textContent = formatDateTime(report.timestamp_datetime);
-        document.getElementById('result-details').textContent = report.details;
+        document.getElementById('result-hash').textContent = result.root_matches ? 'Root verified' : 'Root mismatch';
+        document.getElementById('result-blockchain').textContent = 'Bitcoin';
+        document.getElementById('result-timestamp-status').textContent = tsStatus ? tsStatus.toUpperCase() : 'UNKNOWN';
+        const blockHeight = result.timestamp ? result.timestamp.block_height : null;
+        document.getElementById('result-block-height').textContent = blockHeight ? blockHeight : 'Not yet anchored';
+        const tsDetail = result.timestamp ? result.timestamp.detail : 'Awaiting blockchain anchoring';
+        document.getElementById('result-timestamp-time').textContent = tsDetail;
+        document.getElementById('result-details').textContent = result.overall === 'PASS' ? 'All cryptographic checks returned success. Merkle tree matches root signature.' : (result.timestamp ? result.timestamp.detail : 'Verification failed.');
 
-        // 4. Decrypted download action
+        // 4. Field-by-field report section
+        const container = document.getElementById('field-report-rows');
+        container.innerHTML = '';
+        let intactCount = 0;
+        let tamperedCount = 0;
+        
+        if (result.fields && Object.keys(result.fields).length > 0) {
+            document.getElementById('field-report-container').style.display = 'block';
+            
+            Object.keys(result.fields).forEach(fieldName => {
+                const fieldData = result.fields[fieldName];
+                const status = fieldData.status; // INTACT, TAMPERED, MISSING
+                const value = fieldData.value;
+                
+                // Truncate value to 40 chars
+                const displayVal = value.length > 40 ? value.substring(0, 40) + '...' : value;
+                
+                const row = document.createElement('div');
+                row.className = `field-row ${status === 'INTACT' ? 'field-intact-row' : 'field-tampered-row'}`;
+                
+                let statusBadge = '';
+                if (status === 'INTACT') {
+                    intactCount++;
+                    statusBadge = `<span class="field-intact">✓ INTACT</span>`;
+                } else {
+                    tamperedCount++;
+                    statusBadge = `<span class="field-tampered">✗ ${status}</span>`;
+                }
+                
+                row.innerHTML = `
+                    <span class="field-name">${fieldName}</span>
+                    <span class="field-value" title="${value}">${displayVal}</span>
+                    ${statusBadge}
+                `;
+                container.appendChild(row);
+            });
+            
+            document.getElementById('field-summary').textContent = `${intactCount} fields intact, ${tamperedCount} fields tampered`;
+        } else {
+            document.getElementById('field-report-container').style.display = 'none';
+        }
+
+        // 5. Decrypted download action
         const downloadBtn = document.getElementById('btn-download-recovered');
         if (result.decrypted_data) {
-            recoveredPdfFilename = result.original_filename;
+            recoveredPdfFilename = result.original_filename || 'recovered_document.xml';
             recoveredPdfData = result.decrypted_data;
             downloadBtn.style.display = 'inline-flex';
+            const spanText = recoveredPdfFilename.endsWith('.xml') ? 'Download Decrypted XML' : 'Download Original PDF';
+            downloadBtn.querySelector('span').textContent = spanText;
         } else {
             downloadBtn.style.display = 'none';
         }
 
         // Add to Audit Log
-        const logStatusText = report.authenticity_status === 'authentic' ? 'VERIFIED' : 'TAMPERED';
-        const logStatusClass = report.authenticity_status === 'authentic' ? 'success' : 'danger';
-        addAuditRecord(verifyZipFile.name, report.sha256, logStatusText, logStatusClass);
+        const logStatusText = result.overall === 'PASS' ? 'VERIFIED' : 'TAMPERED';
+        const logStatusClass = result.overall === 'PASS' ? 'success' : 'danger';
+        addAuditRecord(verifyZipFile.name, result.root_matches ? 'Root verified' : 'Root mismatch', logStatusText, logStatusClass);
 
     } catch (error) {
         alert('Server verification request failed: ' + error.message);
