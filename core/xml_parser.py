@@ -48,6 +48,9 @@ FIELD_CANDIDATES: dict[str, list[str]] = {
         "DateOfIssue", "dateOfIssue", "issueDate", "IssueDate",
         "date_of_issue",
     ],
+    "valid_until": [
+    "ValidUntil","validUntil","validUntilDate","ExpiryDate",
+    ],
     "methodology": [
         "Methodology", "methodology", "CalibrationMethod", "calibrationMethod",
         "procedure", "Procedure", "calibrationProcedure", "CalibrationProcedure",
@@ -264,6 +267,7 @@ def parse_xml(filepath: str) -> dict[str, Any]:
         "certificate_number":_find_text(root, FIELD_CANDIDATES["certificate_number"]),
         "calibration_date":  _find_text(root, FIELD_CANDIDATES["calibration_date"]),
         "date_of_issue":     _find_text(root, FIELD_CANDIDATES["date_of_issue"]),
+        "valid_until":       _find_text(root, FIELD_CANDIDATES["valid_until"]),
         "methodology":       _find_text(root, FIELD_CANDIDATES["methodology"]),
         "traceability":      _find_text(root, FIELD_CANDIDATES["traceability"]),
         "remarks":           _find_text(root, FIELD_CANDIDATES["remarks"], default=""),
