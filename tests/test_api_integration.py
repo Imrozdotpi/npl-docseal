@@ -54,20 +54,46 @@ def create_modified_zip(src_zip, dest_zip, remove_files=None, add_files=None, mo
 
 def run_tests():
     print("==================================================")
-    print("STARTING NPL DOCSEAL API INTEGRATION TESTS")
+    print("STARTING NPL DOCSEAL XML/MERKLE API INTEGRATION TESTS")
     print("==================================================")
     
     # Create temp directories
     tests_dir = Path("tests")
     tests_dir.mkdir(exist_ok=True)
     
-    # 1. Create a dummy document for testing
-    test_doc_path = tests_dir / "integration_test_doc.pdf"
-    test_content = b"CONFIDENTIAL NATIONAL PHYSICAL LABORATORY SECURITY DOCUMENT - LEVEL 5"
-    with open(test_doc_path, "wb") as f:
+    # 1. Create a dummy XML document for testing
+    test_doc_path = tests_dir / "integration_test_doc.xml"
+    test_content = """<?xml version="1.0" encoding="UTF-8"?>
+<CalibrationCertificate>
+    <Organization>CSIR-NPL</Organization>
+    <CertificateNumber>CSIR-NPL-2026-999</CertificateNumber>
+    <CalibrationDate>2026-07-06</CalibrationDate>
+    <DateOfIssue>2026-07-06</DateOfIssue>
+    <Methodology>Direct Comparison</Methodology>
+    <Traceability>CSIR-NPL Standards</Traceability>
+    <Instrument>
+        <Model>Digital Multimeter</Model>
+        <ModelNumber>DMM-8848</ModelNumber>
+        <SerialNumber>SN-DMM-12345</SerialNumber>
+        <Make>NPL Instruments</Make>
+    </Instrument>
+    <EnvironmentalConditions>
+        <Temperature>23.4 C</Temperature>
+        <RelativeHumidity>48.2%</RelativeHumidity>
+    </EnvironmentalConditions>
+    <Results>
+        <Measurement>
+            <IndicatedValueA>10.000 V</IndicatedValueA>
+            <MeasuredValueA>10.002 V</MeasuredValueA>
+            <ExpandedUncertaintyPercent>0.05%</ExpandedUncertaintyPercent>
+        </Measurement>
+    </Results>
+</CalibrationCertificate>
+"""
+    with open(test_doc_path, "w") as f:
         f.write(test_content)
     
-    print(f"[TEST] Created dummy test document: {test_doc_path}")
+    print(f"[TEST] Created dummy XML test document: {test_doc_path}")
 
     # File paths for testing payloads
     sealed_zip = tests_dir / "sealed_payload.zip"
@@ -80,9 +106,9 @@ def run_tests():
     
     try:
         # 2. Test Sealing (Creates sealed ZIP)
-        print("\n[TEST 1] Sealing Document via /api/seal...")
+        print("\n[TEST 1] Sealing XML Document via /api/seal...")
         with open(test_doc_path, "rb") as doc_file:
-            files = {"document": ("integration_test_doc.pdf", doc_file, "application/pdf")}
+            files = {"document": ("integration_test_doc.xml", doc_file, "text/xml")}
             data = {"password": "karan", "keypass": "karan"}
             
             response = requests.post(f"{API_URL}/api/seal", files=files, data=data)
@@ -94,7 +120,7 @@ def run_tests():
         zip_filename = res_json["zip_filename"]
         zip_data_b64 = res_json["zip_data"]
         
-        print(f"  - Generated SHA-256 Hash: {sealed_hash}")
+        print(f"  - Generated Merkle Root: {sealed_hash}")
         print(f"  - Received ZIP Archive: {zip_filename}")
         
         # Save ZIP file
@@ -111,22 +137,19 @@ def run_tests():
             
         assert response.status_code == 200, f"Verify failed with status {response.status_code}: {response.text}"
         res_json = response.json()
-        report = res_json["report"]
         
-        print(f"  - Encryption Status: {report['encryption_status']}")
-        print(f"  - Signature Status: {report['signature_status']}")
-        print(f"  - Timestamp Status: {report['timestamp_status']}")
-        print(f"  - Authenticity Status: {report['authenticity_status']}")
-        print(f"  - Log Details: {report['details']}")
+        print(f"  - Overall Status: {res_json['overall']}")
+        print(f"  - Signature Valid: {res_json['signature_valid']}")
+        print(f"  - Root Matches: {res_json['root_matches']}")
+        print(f"  - Timestamp Status: {res_json['timestamp']['status']}")
         
-        assert report["encryption_status"] == "decrypted", "Decryption status should be decrypted"
-        assert report["signature_status"] == "valid", "Signature should be valid"
-        assert report["timestamp_status"] in ("confirmed", "pending"), "Timestamp status should be confirmed or pending"
-        assert report["authenticity_status"] == "authentic", "Overall authenticity should be authentic"
-        
-        recovered_data = base64.b64decode(res_json["decrypted_data"])
-        assert recovered_data == test_content, "Recovered document content mismatch!"
-        print("  - Recovered document matched original content perfectly.")
+        assert res_json["overall"] == "PASS", "Overall verification should be PASS"
+        assert res_json["signature_valid"] is True, "Signature should be valid"
+        assert res_json["root_matches"] is True, "Merkle root should match"
+        assert res_json["timestamp"]["status"] in ("confirmed", "pending"), "Timestamp status should be confirmed or pending"
+        assert res_json["fields"]["organization"]["status"] == "INTACT", "Organization status should be INTACT"
+        assert res_json["fields"]["organization"]["value"] == "CSIR-NPL", "Organization value should be CSIR-NPL"
+        print("  - Verified XML document integrity and Merkle fields perfectly.")
 
         # 4. Test Tamper Detection: Incorrect Password
         print("\n[TEST 3] Tamper Detection: Incorrect Password...")
@@ -137,16 +160,15 @@ def run_tests():
             
         assert response.status_code == 200
         res_json = response.json()
-        report = res_json["report"]
         
-        print(f"  - Encryption Status: {report['encryption_status']}")
-        print(f"  - Authenticity Status: {report['authenticity_status']}")
-        print(f"  - Log Details: {report['details']}")
+        print(f"  - Overall Status: {res_json['overall']}")
+        print(f"  - Signature Valid: {res_json['signature_valid']}")
+        print(f"  - Root Matches: {res_json['root_matches']}")
         
-        assert report["encryption_status"] == "failed"
-        assert report["authenticity_status"] == "compromised"
-        assert res_json["decrypted_data"] is None
-        print("  - Correctly identified decryption failure and flagged as compromised.")
+        assert res_json["overall"] == "FAIL", "Overall status should be FAIL on bad password"
+        assert res_json["signature_valid"] is False
+        assert res_json["root_matches"] is False
+        print("  - Correctly identified decryption failure and flagged overall as FAIL.")
 
         # 5. Test Tamper Detection: Modified Signature inside ZIP
         print("\n[TEST 4] Tamper Detection: Modified Signature...")
@@ -161,7 +183,7 @@ def run_tests():
         create_modified_zip(
             sealed_zip, 
             tampered_sig_zip, 
-            modify_files={"integration_test_doc.pdf.sig": modify_sig}
+            modify_files={"integration_test_doc.xml.sig": modify_sig}
         )
         
         with open(tampered_sig_zip, "rb") as fz:
@@ -171,16 +193,14 @@ def run_tests():
             
         assert response.status_code == 200
         res_json = response.json()
-        report = res_json["report"]
         
-        print(f"  - Encryption Status: {report['encryption_status']}")
-        print(f"  - Signature Status: {report['signature_status']}")
-        print(f"  - Authenticity Status: {report['authenticity_status']}")
-        print(f"  - Log Details: {report['details']}")
+        print(f"  - Overall Status: {res_json['overall']}")
+        print(f"  - Signature Valid: {res_json['signature_valid']}")
+        print(f"  - Root Matches: {res_json['root_matches']}")
         
-        assert report["encryption_status"] == "decrypted"
-        assert report["signature_status"] == "invalid"
-        assert report["authenticity_status"] == "compromised"
+        assert res_json["overall"] == "FAIL", "Overall status should be FAIL on tampered signature"
+        assert res_json["signature_valid"] is False
+        assert res_json["root_matches"] is True
         print("  - Correctly detected signature tampering inside the ZIP package.")
 
         # 6. Test Tamper Detection: Modified OpenTimestamp Receipt inside ZIP
@@ -190,7 +210,7 @@ def run_tests():
         create_modified_zip(
             sealed_zip,
             tampered_ots_zip,
-            modify_files={"integration_test_doc.pdf.ots": lambda d: d + b"TAMPERED_DETAILS"}
+            modify_files={"integration_test_doc.xml.ots": lambda d: d + b"TAMPERED_DETAILS"}
         )
         
         with open(tampered_ots_zip, "rb") as fz:
@@ -200,16 +220,13 @@ def run_tests():
             
         assert response.status_code == 200
         res_json = response.json()
-        report = res_json["report"]
         
-        print(f"  - Encryption Status: {report['encryption_status']}")
-        print(f"  - Timestamp Status: {report['timestamp_status']}")
-        print(f"  - Authenticity Status: {report['authenticity_status']}")
-        print(f"  - Log Details: {report['details']}")
+        print(f"  - Overall Status: {res_json['overall']}")
+        print(f"  - Timestamp Status: {res_json['timestamp']['status']}")
         
-        assert report["encryption_status"] == "decrypted"
-        assert report["timestamp_status"] == "failed"
-        assert report["authenticity_status"] == "compromised"
+        # Overall status is still PASS because signature and root are intact, but timestamp failed
+        assert res_json["overall"] == "PASS"
+        assert res_json["timestamp"]["status"] == "failed"
         print("  - Correctly identified OpenTimestamp tampering inside the ZIP package.")
 
         # =====================================================================
@@ -230,7 +247,7 @@ def run_tests():
         print("  - Correctly rejected ZIP missing public_key.pem with HTTP 400.")
 
         print("\n[TEST 7] Negative Test: Missing digital signature (.sig)...")
-        create_modified_zip(sealed_zip, missing_sig_zip, remove_files=["integration_test_doc.pdf.sig"])
+        create_modified_zip(sealed_zip, missing_sig_zip, remove_files=["integration_test_doc.xml.sig"])
         
         with open(missing_sig_zip, "rb") as fz:
             files = {"document_zip": ("missing_sig.zip", fz, "application/zip")}
@@ -247,7 +264,7 @@ def run_tests():
         create_modified_zip(
             sealed_zip, 
             duplicate_enc_zip, 
-            add_files={"extra_document.pdf.enc": b"DUPLICATE_ENCRYPTED_DATA"}
+            add_files={"extra_document.xml.enc": b"DUPLICATE_ENCRYPTED_DATA"}
         )
         
         with open(duplicate_enc_zip, "rb") as fz:
@@ -265,7 +282,7 @@ def run_tests():
         create_modified_zip(
             sealed_zip,
             duplicate_ots_zip,
-            add_files={"extra_proof.pdf.ots": b"DUPLICATE_TIMESTAMP_PROOF"}
+            add_files={"extra_proof.xml.ots": b"DUPLICATE_TIMESTAMP_PROOF"}
         )
         
         with open(duplicate_ots_zip, "rb") as fz:

@@ -780,3 +780,97 @@ body::before {
     color: var(--accent-cyan);
     border: 1px solid rgba(6, 182, 212, 0.2);
 }
+
+/* Field-Level Integrity Report Styling */
+.field-report-box {
+    margin-top: 1.5rem;
+    padding: 1.25rem;
+    background: rgba(17, 25, 46, 0.5);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.field-report-box h4 {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.field-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.65rem 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 0.875rem;
+    gap: 1rem;
+    transition: var(--transition-fast);
+}
+
+.field-row:last-child {
+    border-bottom: none;
+}
+
+.field-row.field-intact-row {
+    background: rgba(16, 185, 129, 0.02);
+}
+
+.field-row.field-tampered-row {
+    background: rgba(239, 68, 68, 0.05);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    border-radius: 4px;
+    margin: 2px 0;
+}
+
+.field-name {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    flex: 1 1 30%;
+    word-break: break-all;
+}
+
+.field-value {
+    color: var(--text-primary);
+    flex: 1 1 50%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.85rem;
+}
+
+.field-intact {
+    color: var(--accent-green);
+    font-weight: 600;
+    font-size: 0.75rem;
+    background: rgba(16, 185, 129, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.field-tampered {
+    color: var(--accent-red);
+    font-weight: 600;
+    font-size: 0.75rem;
+    background: rgba(239, 68, 68, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.field-summary {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-align: right;
+}
