@@ -10,3 +10,7 @@ pip install fastapi uvicorn python-multipart
 Get-ChildItem -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
 Get-ChildItem -Recurse -Filter "*.pyc" | Remove-Item -Force
 Remove-Item -Recurse -Force .pytest_cache -ErrorAction SilentlyContinue
+
+$env:SEPOLIA_RPC_URL = "https://eth-sepolia.g.alchemy.com/v2/zI1BQ52bdqQpOZj3boGG3"
+$env:SEPOLIA_WALLET  = "0x7C24667Fec6F6f9D54Fa68bB8D0b1c3D6BaE19FB"
+$env:SEPOLIA_PRIVATE_KEY = "bddffa03315b85b060a6876577acb1ebdec162f9792a845b556016aaf7fca900"
