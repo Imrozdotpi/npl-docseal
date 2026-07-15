@@ -582,7 +582,7 @@ body {
     height: 100%;
 }
 
-.pipeline-step:last-child .connector { display: none; }
+.pipeline-step:last-of-type .connector { display: none; }
 
 /* Icon circle */
 .pipeline-step .icon-circle {
@@ -692,6 +692,35 @@ body {
     white-space: nowrap;
     margin-left: auto;
     flex-shrink: 0;
+    transition: all 0.3s ease;
+}
+
+.pipeline-step .avg-badge.badge-actual {
+    background: #e0e7ff;
+    color: #4338ca;
+    font-weight: 700;
+    border: 1px solid #c7d2fe;
+}
+
+.pipeline-step .avg-badge.badge-running {
+    background: #fef3c7;
+    color: #d97706;
+    font-weight: 600;
+    border: 1px solid #fde68a;
+}
+
+.pipeline-step .avg-badge.badge-error {
+    background: #fee2e2;
+    color: #dc2626;
+    font-weight: 700;
+    border: 1px solid #fecaca;
+}
+
+.pipeline-step .avg-badge.badge-skipped {
+    background: #f1f5f9;
+    color: #94a3b8;
+    font-weight: 500;
+    border: 1px solid #e2e8f0;
 }
 
 /* Tooltip */
@@ -1032,3 +1061,189 @@ body {
 
 .api-error-banner.visible { display: block; animation: fadeIn 0.3s ease; }
 .api-error-banner strong { color: #7f1d1d; }
+
+/* ═══════════════════ EXPANDABLE STEP DETAILS ═══════════════════ */
+
+/* ───────── Chevron button ───────── */
+.step-chevron {
+    position: absolute;
+    right: 0;
+    top: 6px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 4px;
+    border-radius: 4px;
+    transition: transform 0.25s ease, color 0.2s;
+    opacity: 0;
+    pointer-events: none;
+}
+.step-chevron.enabled {
+    opacity: 1;
+    pointer-events: auto;
+}
+.step-chevron:hover { color: var(--accent-indigo); background: var(--accent-indigo-light); }
+.step-chevron.expanded { transform: rotate(180deg); }
+
+/* ───────── Step details panel ───────── */
+.step-details-panel {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease-out, opacity 0.25s ease-out;
+    opacity: 0;
+    margin-left: 44px;
+    margin-bottom: 4px;
+}
+.step-details-panel.expanded {
+    opacity: 1;
+    /* max-height set by JS */
+}
+
+/* ───────── Detail panel content ───────── */
+.detail-panel-inner {
+    background: #f8fafc;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+}
+.detail-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-top: 14px;
+    margin-bottom: 8px;
+}
+.detail-section-title:first-child { margin-top: 0; }
+.detail-summary-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin-bottom: 4px;
+}
+.detail-grid {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 6px 12px;
+    font-size: 12px;
+}
+.detail-grid .detail-key {
+    color: var(--text-muted);
+    font-weight: 500;
+}
+.detail-grid .detail-val {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    word-break: break-all;
+}
+.detail-exec-time {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent-indigo);
+    background: var(--accent-indigo-light);
+    padding: 4px 12px;
+    border-radius: 6px;
+}
+.detail-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 6px;
+}
+.detail-status-badge.status-completed {
+    color: var(--accent-green-dark);
+    background: #f0fdf4;
+}
+.detail-status-badge.status-failed {
+    color: var(--accent-red);
+    background: #fef2f2;
+}
+
+/* ───────── Skipped step state ───────── */
+.pipeline-step.step-skipped .icon-circle {
+    border-color: var(--border-color);
+    border-style: dashed;
+    background: #f8fafc;
+}
+.pipeline-step.step-skipped .icon-circle svg { color: #cbd5e1; }
+.pipeline-step.step-skipped .step-title { color: #cbd5e1; text-decoration: line-through; }
+.pipeline-step.step-skipped .step-sub { color: #cbd5e1; font-style: italic; }
+
+/* ───────── Failure error detail section ───────── */
+.detail-error-box {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 8px;
+}
+.detail-error-box .error-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--accent-red);
+    margin-bottom: 4px;
+}
+.detail-error-box .error-message {
+    font-size: 12px;
+    color: #7f1d1d;
+    line-height: 1.5;
+}
+.detail-error-box .error-suggestion {
+    font-size: 11px;
+    color: #991b1b;
+    margin-top: 6px;
+    font-style: italic;
+}
+
+/* ───────── Failure summary banner ───────── */
+.failure-banner {
+    margin-top: 20px;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid #fecaca;
+    animation: slide-up 0.4s ease-out;
+    display: none;
+}
+.failure-banner.visible { display: block; }
+.failure-banner .failure-header {
+    background: var(--accent-red);
+    color: #fff;
+    padding: 12px 18px;
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.failure-banner .failure-body {
+    padding: 16px 18px;
+    background: #fef2f2;
+}
+.failure-banner .failure-body .fb-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid #fecaca;
+    font-size: 13px;
+}
+.failure-banner .failure-body .fb-row:last-child { border-bottom: none; }
+.failure-banner .failure-body .fb-label { color: #991b1b; font-weight: 500; }
+.failure-banner .failure-body .fb-value { color: #7f1d1d; font-weight: 700; }
+.failure-banner .failure-footer {
+    padding: 10px 18px;
+    background: #fef2f2;
+    border-top: 1px solid #fecaca;
+    font-size: 12px;
+    color: #991b1b;
+    font-style: italic;
+}
