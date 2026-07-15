@@ -24,31 +24,33 @@ const SVG_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 const SVG_INFO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>';
 const SVG_CHECK_SM = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>';
 const SVG_ALERT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
+const SVG_CHEVRON_DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><polyline points="6 9 12 15 18 9"/></svg>';
+const SVG_SKIP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>';
 
-// ─── Step configurations ───
+// ─── Step configurations (used ONLY for initial UI rendering) ───
 const SEAL_STEPS = [
-    { title: 'File received', doneSub: 'XML parsed, fields ready for processing', range: [300,600], avg: 'avg ~0.4s' },
-    { title: 'Reading XML fields', doneSub: '31 certificate fields extracted and validated', range: [400,800], avg: 'avg ~0.5s' },
-    { title: 'Computing field hashes', doneSub: '31 SHA-256 hashes computed (one per field)', range: [200,500], avg: 'avg ~0.3s' },
-    { title: 'Building Merkle tree', doneSub: '32-byte Merkle root derived from all field hashes', range: [100,300], avg: 'avg ~0.1s' },
-    { title: 'RSA-4096 digital signature', doneSub: "Merkle root signed with Director's private key", range: [500,900], avg: 'avg ~0.6s' },
-    { title: 'AES-256-GCM encryption', doneSub: 'XML encrypted; only authorised parties can read it', range: [200,500], avg: 'avg ~0.3s' },
-    { title: 'Anchoring to blockchain', doneSub: 'Merkle root recorded on Ethereum Sepolia; tx confirmed', range: [8000,14000], avg: 'avg ~12s', hasTooltip: true },
-    { title: 'Packaging output ZIP', doneSub: 'Signature, Merkle proof, public key and encrypted XML bundled', range: [300,600], avg: 'avg ~0.4s' },
-    { title: 'Sealed — ready to download', doneSub: 'Your certificate is cryptographically sealed and tamper-evident', range: [100,200], avg: 'avg ~0.1s' },
+    { title: 'File received', avg: 'avg ~0.4s', hasTooltip: false },
+    { title: 'Reading XML fields', avg: 'avg ~0.5s', hasTooltip: false },
+    { title: 'Computing field hashes', avg: 'avg ~0.3s', hasTooltip: false },
+    { title: 'Building Merkle tree', avg: 'avg ~0.1s', hasTooltip: false },
+    { title: 'RSA-4096 digital signature', avg: 'avg ~0.6s', hasTooltip: false },
+    { title: 'AES-256-GCM encryption', avg: 'avg ~0.3s', hasTooltip: false },
+    { title: 'Anchoring to blockchain', avg: 'avg ~12s', hasTooltip: true },
+    { title: 'Packaging output ZIP', avg: 'avg ~0.4s', hasTooltip: false },
+    { title: 'Sealed — ready to download', avg: 'avg ~0.1s', hasTooltip: false },
 ];
 
 const VERIFY_STEPS = [
-    { title: 'ZIP received', doneSub: 'Archive extracted; all expected files found', range: [300,500], avg: 'avg ~0.3s' },
-    { title: 'Loading certificate files', doneSub: 'Encrypted XML, signature, Merkle proof and public key loaded', range: [200,400], avg: 'avg ~0.2s' },
-    { title: 'Decrypting XML', doneSub: 'AES-256-GCM decryption complete; plaintext XML recovered', range: [200,500], avg: 'avg ~0.3s' },
-    { title: 'Parsing certificate fields', doneSub: '31 fields extracted from decrypted XML', range: [200,400], avg: 'avg ~0.2s' },
-    { title: 'Recomputing field hashes', doneSub: '31 SHA-256 hashes recalculated from live data', range: [200,400], avg: 'avg ~0.2s' },
-    { title: 'Rebuilding Merkle tree', doneSub: 'New Merkle root computed from recomputed hashes', range: [100,200], avg: 'avg ~0.1s' },
-    { title: 'Verifying RSA signature', doneSub: 'Merkle root matches signed value — signature valid', range: [400,700], avg: 'avg ~0.5s' },
-    { title: 'Blockchain confirmation', doneSub: 'Merkle root found on Ethereum Sepolia — timestamp verified', range: [5000,10000], avg: 'avg ~7s' },
-    { title: 'Field integrity check', doneSub: 'All 31 fields intact — no tampering detected', range: [300,600], avg: 'avg ~0.4s' },
-    { title: 'Verification complete', doneSub: 'Certificate is authentic and unmodified', range: [100,200], avg: 'avg ~0.1s' },
+    { title: 'ZIP received', avg: 'avg ~0.3s', hasTooltip: false },
+    { title: 'Loading certificate files', avg: 'avg ~0.2s', hasTooltip: false },
+    { title: 'Decrypting XML', avg: 'avg ~0.3s', hasTooltip: false },
+    { title: 'Parsing certificate fields', avg: 'avg ~0.2s', hasTooltip: false },
+    { title: 'Recomputing field hashes', avg: 'avg ~0.2s', hasTooltip: false },
+    { title: 'Rebuilding Merkle tree', avg: 'avg ~0.1s', hasTooltip: false },
+    { title: 'Verifying RSA signature', avg: 'avg ~0.5s', hasTooltip: false },
+    { title: 'Blockchain confirmation', avg: 'avg ~7s', hasTooltip: true },
+    { title: 'Field integrity check', avg: 'avg ~0.4s', hasTooltip: false },
+    { title: 'Verification complete', avg: 'avg ~0.1s', hasTooltip: false },
 ];
 
 // ═══════════════════ INITIALIZATION ═══════════════════
@@ -109,49 +111,137 @@ function buildPipelineUI(containerId, steps) {
                     </div>
                     <div class="step-sub">Waiting…</div>
                 </div>
+                <button class="step-chevron" onclick="toggleStepDetails('${containerId}', ${i})">
+                    ${SVG_CHEVRON_DOWN}
+                </button>
             </div>
+            <div class="step-details-panel" id="${containerId}-details-${i}"></div>
         `;
         container.insertAdjacentHTML('beforeend', html);
     });
 }
 
-// ═══════════════════ PIPELINE ANIMATION ENGINE ═══════════════════
+// ═══════════════════ STEP DETAIL EXPAND/COLLAPSE ═══════════════════
 
-function simulateDelay(min, max) {
-    const ms = min + Math.random() * (max - min);
-    return new Promise(resolve => setTimeout(resolve, ms));
+function toggleStepDetails(containerId, index) {
+    const panel = document.getElementById(`${containerId}-details-${index}`);
+    const chevron = document.querySelector(`#${containerId}-step-${index} .step-chevron`);
+    if (!panel || !chevron || !chevron.classList.contains('enabled')) return;
+
+    if (panel.classList.contains('expanded')) {
+        panel.style.maxHeight = '0px';
+        panel.classList.remove('expanded');
+        chevron.classList.remove('expanded');
+    } else {
+        panel.style.maxHeight = (panel.scrollHeight + 60) + 'px';
+        panel.classList.add('expanded');
+        chevron.classList.add('expanded');
+    }
 }
+
+function renderStepDetails(containerId, index, stepData) {
+    const panel = document.getElementById(`${containerId}-details-${index}`);
+    if (!panel) return;
+
+    let html = '<div class="detail-panel-inner">';
+
+    // Section: What happened
+    html += '<div class="detail-section-title">What happened</div>';
+    html += `<div class="detail-summary-text">${stepData.summary || 'No summary available.'}</div>`;
+
+    // Section: Failure reason (only if failed)
+    if (stepData.error) {
+        html += '<div class="detail-error-box">';
+        html += '<div class="error-label">Failure Reason</div>';
+        html += `<div class="error-message">${stepData.error.message}</div>`;
+        if (stepData.error.suggestion) {
+            html += `<div class="error-suggestion">${stepData.error.suggestion}</div>`;
+        }
+        html += '</div>';
+    }
+
+    // Section: Technical Details
+    if (stepData.details && Object.keys(stepData.details).length > 0) {
+        html += '<div class="detail-section-title">Technical Details</div>';
+        html += '<div class="detail-grid">';
+        for (const [key, value] of Object.entries(stepData.details)) {
+            const label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            let displayVal = value;
+            if (Array.isArray(value)) displayVal = value.join(', ');
+            if (typeof value === 'boolean') displayVal = value ? '✓ Yes' : '✗ No';
+            if (typeof value === 'object' && value !== null && !Array.isArray(value)) displayVal = JSON.stringify(value);
+            html += `<div class="detail-key">${label}</div>`;
+            html += `<div class="detail-val">${displayVal}</div>`;
+        }
+        html += '</div>';
+    }
+
+    // Section: Execution Time
+    if (stepData.duration_ms !== undefined && stepData.duration_ms !== null) {
+        html += '<div class="detail-section-title">Execution Time</div>';
+        const timeDisplay = stepData.duration_ms >= 1000
+            ? `${(stepData.duration_ms / 1000).toFixed(2)} s`
+            : `${stepData.duration_ms} ms`;
+        html += `<span class="detail-exec-time">${timeDisplay}</span>`;
+    }
+
+    // Section: Status
+    html += '<div class="detail-section-title">Status</div>';
+    if (stepData.status === 'completed') {
+        html += '<span class="detail-status-badge status-completed">✅ Completed Successfully</span>';
+    } else if (stepData.status === 'failed') {
+        html += '<span class="detail-status-badge status-failed">❌ Failed</span>';
+    }
+
+    html += '</div>'; // close detail-panel-inner
+    panel.innerHTML = html;
+}
+
+// ═══════════════════ PIPELINE ANIMATION ENGINE ═══════════════════
 
 function setStepState(containerId, index, state, duration, doneSub) {
     const stepEl = document.getElementById(`${containerId}-step-${index}`);
     if (!stepEl) return;
 
     // Remove all state classes
-    stepEl.classList.remove('step-waiting', 'step-active', 'step-done', 'step-error');
+    stepEl.classList.remove('step-waiting', 'step-active', 'step-done', 'step-error', 'step-skipped');
     stepEl.classList.add(`step-${state}`);
 
     const iconCircle = stepEl.querySelector('.icon-circle');
     const subEl = stepEl.querySelector('.step-sub');
+    const badgeEl = stepEl.querySelector('.avg-badge');
 
     switch (state) {
         case 'waiting':
             iconCircle.innerHTML = SVG_CLOCK;
             subEl.textContent = 'Waiting…';
+            if (badgeEl) { badgeEl.className = 'avg-badge'; }
             break;
         case 'active':
             iconCircle.innerHTML = SVG_LOADER;
             subEl.textContent = 'In progress 0.0s';
+            if (badgeEl) { badgeEl.textContent = 'Running…'; badgeEl.className = 'avg-badge badge-running'; }
             break;
         case 'done':
             iconCircle.innerHTML = SVG_CHECK;
             subEl.textContent = doneSub || `Completed in ${duration.toFixed(1)}s`;
-            // Fill connector
             const connector = stepEl.querySelector('.connector');
             if (connector) connector.classList.add('filled');
+            if (badgeEl && duration !== undefined && duration !== null) {
+                const ms = Math.round(duration * 1000);
+                badgeEl.textContent = ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${ms} ms`;
+                badgeEl.className = 'avg-badge badge-actual';
+            }
             break;
         case 'error':
             iconCircle.innerHTML = SVG_X;
-            subEl.textContent = 'Failed — see details below';
+            subEl.textContent = doneSub || 'Failed — see details below';
+            if (badgeEl) { badgeEl.textContent = 'Failed'; badgeEl.className = 'avg-badge badge-error'; }
+            break;
+        case 'skipped':
+            iconCircle.innerHTML = SVG_SKIP;
+            subEl.textContent = doneSub || 'Skipped — previous step failed';
+            if (badgeEl) { badgeEl.textContent = 'Skipped'; badgeEl.className = 'avg-badge badge-skipped'; }
             break;
     }
 }
@@ -179,26 +269,72 @@ function stopElapsedTicker() {
     }
 }
 
-async function runPipelineAnimation(containerId, steps) {
-    const durations = [];
-    let totalTime = 0;
+async function animatePipelineFromBackend(containerId, backendSteps) {
+    for (let i = 0; i < backendSteps.length; i++) {
+        const step = backendSteps[i];
+        const stepEl = document.getElementById(`${containerId}-step-${i}`);
 
-    for (let i = 0; i < steps.length; i++) {
+        if (step.status === 'skipped') {
+            setStepState(containerId, i, 'skipped');
+            continue;
+        }
+
         setStepState(containerId, i, 'active');
-        const start = startElapsedTicker(containerId, i);
 
-        const [min, max] = steps[i].range;
-        await simulateDelay(min, max);
+        const durationMs = step.duration_ms || 100;
+        const animDelay = 200 + Math.min(1200, Math.log1p(durationMs) * 100);
+
+        startElapsedTicker(containerId, i);
+
+        await new Promise(resolve => setTimeout(resolve, animDelay));
 
         stopElapsedTicker();
-        const elapsed = (Date.now() - start) / 1000;
-        durations.push(elapsed);
-        totalTime += elapsed;
 
-        setStepState(containerId, i, 'done', elapsed, steps[i].doneSub);
+        if (step.status === 'completed') {
+            setStepState(containerId, i, 'done', durationMs / 1000, step.summary);
+        } else if (step.status === 'failed') {
+            setStepState(containerId, i, 'error', null, step.summary || 'Failed — see details below');
+        }
+
+        renderStepDetails(containerId, i, step);
+        const chevron = stepEl?.querySelector('.step-chevron');
+        if (chevron) {
+            chevron.classList.add('enabled');
+            if (step.status === 'failed') {
+                toggleStepDetails(containerId, i);
+            }
+        }
+
+        if (step.status === 'failed') {
+            // Continue loop — remaining steps will be handled by the skipped branch
+        }
+    }
+}
+
+// ═══════════════════ FAILURE BANNER ═══════════════════
+
+function showFailureBanner(elementId, failedStep) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    const errorMsg = failedStep.error ? failedStep.error.message : 'An unknown error occurred.';
+    const suggestion = failedStep.error && failedStep.error.suggestion ? failedStep.error.suggestion : '';
+
+    let bodyHtml = `
+        <div class="fb-row"><span class="fb-label">Failed Step</span><span class="fb-value">${failedStep.title}</span></div>
+        <div class="fb-row"><span class="fb-label">Reason</span><span class="fb-value">${errorMsg}</span></div>
+    `;
+
+    if (suggestion) {
+        bodyHtml += `<div class="fb-row"><span class="fb-label">Suggestion</span><span class="fb-value">${suggestion}</span></div>`;
     }
 
-    return { durations, totalTime };
+    el.innerHTML = `
+        <div class="failure-header">${SVG_ALERT} ⚠ Process Failed</div>
+        <div class="failure-body">${bodyHtml}</div>
+        <div class="failure-footer">No further cryptographic operations were performed.</div>
+    `;
+    el.classList.add('visible');
 }
 
 // ═══════════════════ DRAG & DROP ═══════════════════
@@ -307,6 +443,8 @@ function resetSealPipeline() {
     document.getElementById('seal-summary').innerHTML = '';
     document.getElementById('seal-error-card').classList.remove('visible');
     document.getElementById('seal-error-card').innerHTML = '';
+    document.getElementById('seal-failure-banner').classList.remove('visible');
+    document.getElementById('seal-failure-banner').innerHTML = '';
     document.getElementById('seal-download-wrap').classList.remove('visible');
     document.getElementById('seal-api-error').classList.remove('visible');
     const btn = document.getElementById('btn-seal');
@@ -324,6 +462,8 @@ function resetVerifyPipeline() {
     document.getElementById('verify-summary').innerHTML = '';
     document.getElementById('verify-error-card').classList.remove('visible');
     document.getElementById('verify-error-card').innerHTML = '';
+    document.getElementById('verify-failure-banner').classList.remove('visible');
+    document.getElementById('verify-failure-banner').innerHTML = '';
     document.getElementById('verify-download-wrap').classList.remove('visible');
     document.getElementById('verify-api-error').classList.remove('visible');
     document.getElementById('field-report-container').style.display = 'none';
@@ -360,7 +500,12 @@ async function sealDocument() {
     buildPipelineUI('seal-pipeline', SEAL_STEPS);
     document.getElementById('seal-summary').classList.remove('visible');
     document.getElementById('seal-error-card').classList.remove('visible');
+    document.getElementById('seal-failure-banner').classList.remove('visible');
     document.getElementById('seal-download-wrap').classList.remove('visible');
+
+    // Immediately start step 0 active ticker while waiting for server response
+    setStepState('seal-pipeline', 0, 'active');
+    startElapsedTicker('seal-pipeline', 0);
 
     // Fire API call
     const formData = new FormData();
@@ -368,49 +513,72 @@ async function sealDocument() {
     formData.append('password', password);
     formData.append('keypass', keypass);
 
-    const apiPromise = fetch('/api/seal', { method: 'POST', body: formData })
-        .then(async (res) => {
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.detail || `Server error ${res.status}`);
-            }
-            return res.json();
-        });
-
-    // Run animation + API in parallel
-    const animPromise = runPipelineAnimation('seal-pipeline', SEAL_STEPS);
-
     try {
-        const [apiResult, animResult] = await Promise.all([apiPromise, animPromise]);
+        const res = await fetch('/api/seal', { method: 'POST', body: formData });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Server error ${res.status}`);
+        }
+        const apiResult = await res.json();
+        stopElapsedTicker();
 
-        // Store download data
-        sealedZipFilename = apiResult.zip_filename;
-        sealedZipData = apiResult.zip_data;
+        // Animate pipeline from backend steps
+        if (apiResult.steps && apiResult.steps.length > 0) {
+            await animatePipelineFromBackend('seal-pipeline', apiResult.steps);
+        }
 
-        // Show summary
-        const fieldCount = apiResult.field_count || 31;
-        showSealSummary(fieldCount, animResult.totalTime);
+        if (apiResult.overall === 'PASS') {
+            // Store download data
+            sealedZipFilename = apiResult.zip_filename;
+            sealedZipData = apiResult.zip_data;
 
-        // Show download button
-        const dlWrap = document.getElementById('seal-download-wrap');
-        dlWrap.classList.add('visible');
-        document.getElementById('seal-download-sub').textContent = sealedZipFilename;
-        const dlBtn = document.getElementById('btn-download-zip');
-        dlBtn.classList.add('glow');
-        setTimeout(() => dlBtn.classList.remove('glow'), 3200);
+            // Calculate total time from steps
+            const totalTime = (apiResult.steps || []).reduce((sum, s) => sum + (s.duration_ms || 0), 0) / 1000;
+            const fieldCount = apiResult.field_count || 31;
 
-        // Add to audit log
-        addAuditRecord(sealFile.name, apiResult.hash, 'SEALED', 'success');
+            // Show summary
+            showSealSummary(fieldCount, totalTime);
 
-        // Change button to Reset
-        btn.disabled = false;
-        btn.classList.remove('btn-primary');
-        btn.classList.add('btn-reset');
-        document.getElementById('btn-seal-text').textContent = '↺ Reset';
-        btn.onclick = () => {
-            resetSealPipeline();
-            removeSealFile();
-        };
+            // Show download button
+            const dlWrap = document.getElementById('seal-download-wrap');
+            dlWrap.classList.add('visible');
+            document.getElementById('seal-download-sub').textContent = sealedZipFilename;
+            const dlBtn = document.getElementById('btn-download-zip');
+            dlBtn.classList.add('glow');
+            setTimeout(() => dlBtn.classList.remove('glow'), 3200);
+
+            // Add to audit log
+            addAuditRecord(sealFile.name, apiResult.hash || 'unknown', 'SEALED', 'success');
+
+            // Change button to Reset
+            btn.disabled = false;
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-reset');
+            document.getElementById('btn-seal-text').textContent = '↺ Reset';
+            btn.onclick = () => {
+                resetSealPipeline();
+                removeSealFile();
+            };
+
+        } else {
+            // FAIL — find the failed step
+            const failedStep = (apiResult.steps || []).find(s => s.status === 'failed');
+            if (failedStep) {
+                showFailureBanner('seal-failure-banner', failedStep);
+            } else {
+                showErrorCard('seal-error-card', '⚠ Sealing Failed', 'Process failed');
+            }
+
+            addAuditRecord(sealFile.name, 'N/A', 'SEAL_FAILED', 'danger');
+
+            btn.disabled = false;
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-reset');
+            document.getElementById('btn-seal-text').textContent = '↺ Try Again';
+            btn.onclick = () => {
+                resetSealPipeline();
+            };
+        }
 
     } catch (err) {
         stopElapsedTicker();
@@ -430,12 +598,9 @@ async function sealDocument() {
 
         // Reset button
         btn.disabled = false;
-        btn.classList.remove('btn-primary');
-        btn.classList.add('btn-reset');
-        document.getElementById('btn-seal-text').textContent = '↺ Try Again';
-        btn.onclick = () => {
-            resetSealPipeline();
-        };
+        document.getElementById('btn-seal-text').textContent = 'Seal Document';
+    } finally {
+        sealRunning = false;
     }
 }
 
@@ -474,44 +639,40 @@ async function verifyDocument() {
     buildPipelineUI('verify-pipeline', VERIFY_STEPS);
     document.getElementById('verify-summary').classList.remove('visible');
     document.getElementById('verify-error-card').classList.remove('visible');
+    document.getElementById('verify-failure-banner').classList.remove('visible');
     document.getElementById('verify-download-wrap').classList.remove('visible');
     document.getElementById('field-report-container').style.display = 'none';
+
+    // Immediately start step 0 active ticker while waiting for server response
+    setStepState('verify-pipeline', 0, 'active');
+    startElapsedTicker('verify-pipeline', 0);
 
     const formData = new FormData();
     formData.append('document_zip', verifyZipFile);
     formData.append('password', password);
 
-    const apiPromise = fetch('/api/verify', { method: 'POST', body: formData })
-        .then(async (res) => {
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                throw new Error(err.detail || `Server error ${res.status}`);
-            }
-            return res.json();
-        });
-
-    const animPromise = runPipelineAnimation('verify-pipeline', VERIFY_STEPS);
-
     try {
-        const [apiResult, animResult] = await Promise.all([apiPromise, animPromise]);
+        const res = await fetch('/api/verify', { method: 'POST', body: formData });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Server error ${res.status}`);
+        }
+        const apiResult = await res.json();
+        stopElapsedTicker();
+
+        // Animate pipeline from backend steps
+        if (apiResult.steps && apiResult.steps.length > 0) {
+            await animatePipelineFromBackend('verify-pipeline', apiResult.steps);
+        }
 
         if (apiResult.overall === 'FAIL') {
-            // Mark field integrity step as error
-            setStepState('verify-pipeline', 8, 'error');
-            // Keep step 9 as waiting
-            setStepState('verify-pipeline', 9, 'waiting');
+            // Find the failed step
+            const failedStep = (apiResult.steps || []).find(s => s.status === 'failed');
 
-            // Show error card
-            let errorMsg = 'One or more cryptographic checks failed.';
-            if (apiResult.fields) {
-                const tampered = Object.entries(apiResult.fields).filter(([,v]) => v.status !== 'INTACT');
-                if (tampered.length > 0) {
-                    errorMsg = `Field mismatch found in: <strong>${tampered.map(([k]) => k).join(', ')}</strong> — expected value does not match signed value.`;
-                }
+
+            if (failedStep) {
+                showFailureBanner('verify-failure-banner', failedStep);
             }
-            if (!apiResult.signature_valid) errorMsg = 'RSA signature verification failed — the document may have been re-signed with an untrusted key.';
-
-            showErrorCard('verify-error-card', '⚠ Verification Failed', errorMsg);
 
             // Show field report if available
             renderFieldReport(apiResult.fields);
@@ -535,7 +696,10 @@ async function verifyDocument() {
         const tamperedCount = Object.values(fields).filter(f => f.status !== 'INTACT').length;
         const totalFields = intactCount + tamperedCount;
 
-        showVerifySummary(apiResult, intactCount, totalFields, tamperedCount, animResult.totalTime);
+        // Calculate total time from steps
+        const totalTime = (apiResult.steps || []).reduce((sum, s) => sum + (s.duration_ms || 0), 0) / 1000;
+
+        showVerifySummary(apiResult, intactCount, totalFields, tamperedCount, totalTime);
         renderFieldReport(apiResult.fields);
 
         // Show download
