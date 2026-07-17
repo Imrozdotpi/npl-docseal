@@ -22,6 +22,7 @@ from core.encryptor import encrypt_file, decrypt_file
 from core.timestamper import stamp_file, verify_timestamp, upgrade_timestamp
 from core.xml_parser import parse_xml
 from core.merkle import build_merkle_tree, compare_trees
+from core.pdf_generator import generate_pdf
 from core import audit_db
 
 app = FastAPI(
@@ -883,6 +884,40 @@ async def verify_document(
                     os.remove(filename)
             except Exception:
                 pass
+
+
+# ═══════════════════ PDF PREVIEW ENDPOINT ═══════════════════
+
+@app.post("/api/preview-pdf")
+async def preview_pdf(xml_file: UploadFile = File(...)):
+    """
+    Render a calibration certificate XML into a branded PDF, on demand.
+    Does not touch the seal/verify pipelines or audit logging — this is a
+    read-only preview generated only when the user asks for it.
+    """
+    temp_dir = Path(tempfile.mkdtemp(dir="."))
+    try:
+        temp_filepath = temp_dir / Path(xml_file.filename or "certificate.xml").name
+        with open(temp_filepath, "wb") as buffer:
+            shutil.copyfileobj(xml_file.file, buffer)
+
+        try:
+            parsed = parse_xml(str(temp_filepath))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Could not parse certificate XML: {e}")
+
+        pdf_path = temp_dir / "preview.pdf"
+        try:
+            generate_pdf(parsed, str(pdf_path))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Could not generate PDF preview: {e}")
+
+        with open(pdf_path, "rb") as f:
+            pdf_data_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+        return {"pdf_data": pdf_data_base64}
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 # ─────────────────────────────────────────────────────────────────

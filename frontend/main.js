@@ -533,6 +533,7 @@ function displaySealFileInfo(file) {
     infoBox.style.display = 'flex';
     infoBox.querySelector('.file-name-text').textContent = file.name;
     document.getElementById('seal-file-size').textContent = (file.size / 1024).toFixed(1) + ' KB';
+    document.getElementById('btn-preview-seal').style.display = 'inline-flex';
 }
 
 function removeSealFile() {
@@ -540,6 +541,9 @@ function removeSealFile() {
     document.getElementById('pdf-upload').value = '';
     document.getElementById('seal-file-info').style.display = 'none';
     document.getElementById('seal-dropzone').style.display = 'flex';
+    document.getElementById('btn-preview-seal').style.display = 'none';
+    document.getElementById('seal-preview-card').style.display = 'none';
+    document.getElementById('seal-preview-iframe').src = '';
     resetSealPipeline();
 }
 
@@ -573,6 +577,9 @@ function resetVerifyPipeline() {
     document.getElementById('verify-download-wrap').classList.remove('visible');
     document.getElementById('verify-api-error').classList.remove('visible');
     document.getElementById('field-report-container').style.display = 'none';
+    document.getElementById('btn-preview-verify').style.display = 'none';
+    document.getElementById('verify-preview-card').style.display = 'none';
+    document.getElementById('verify-preview-iframe').src = '';
     const btn = document.getElementById('btn-verify');
     btn.disabled = false;
     document.getElementById('btn-verify-text').textContent = 'Verify & Recover';
@@ -812,6 +819,11 @@ async function verifyDocument() {
         showVerifySummary(apiResult, intactCount, totalFields, tamperedCount, totalTime);
         renderFieldReport(apiResult.fields);
 
+        // Show preview button now that decrypted certificate data is available
+        if (recoveredData) {
+            document.getElementById('btn-preview-verify').style.display = 'inline-flex';
+        }
+
         // Show download
         if (recoveredData) {
             const dlWrap = document.getElementById('verify-download-wrap');
@@ -947,6 +959,54 @@ function flashDownloadButton(textElId, flashText, originalText) {
     const el = document.getElementById(textElId);
     el.textContent = flashText;
     setTimeout(() => { el.textContent = originalText; }, 1500);
+}
+
+// ═══════════════════ CERTIFICATE PDF PREVIEW ═══════════════════
+
+async function renderCertificatePreview(xmlText, filename, cardId, iframeId, btnId, errorBannerId) {
+    const btn = document.getElementById(btnId);
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Rendering…';
+    hideApiError(errorBannerId);
+
+    try {
+        const formData = new FormData();
+        formData.append('xml_file', new Blob([xmlText], { type: 'application/xml' }), filename || 'certificate.xml');
+
+        const res = await fetch('/api/preview-pdf', { method: 'POST', body: formData });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Server error ${res.status}`);
+        }
+        const result = await res.json();
+
+        const binaryString = window.atob(result.pdf_data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const objectUrl = URL.createObjectURL(blob);
+
+        document.getElementById(iframeId).src = objectUrl;
+        document.getElementById(cardId).style.display = 'flex';
+    } catch (err) {
+        showApiError(errorBannerId, `Preview failed: ${err.message}`);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+    }
+}
+
+async function previewSealCertificate() {
+    if (!sealFile) return;
+    const xmlText = await sealFile.text();
+    renderCertificatePreview(xmlText, sealFile.name, 'seal-preview-card', 'seal-preview-iframe', 'btn-preview-seal', 'seal-api-error');
+}
+
+async function previewVerifyCertificate() {
+    if (!recoveredData) return;
+    const xmlText = window.atob(recoveredData);
+    renderCertificatePreview(xmlText, recoveredFilename, 'verify-preview-card', 'verify-preview-iframe', 'btn-preview-verify', 'verify-api-error');
 }
 
 // ═══════════════════ HELPERS ═══════════════════
