@@ -139,6 +139,45 @@ function toggleStepDetails(containerId, index) {
     }
 }
 
+// Package A: Monospace Cryptographic Copy Chips
+function formatCryptoChip(text, label) {
+    if (!text || text === 'N/A') return text;
+    const str = String(text);
+    const escapedText = str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    return `
+        <div class="crypto-chip" title="Click copy to copy ${label || 'value'} to clipboard">
+            <span class="crypto-chip-text">${str}</span>
+            <button type="button" class="crypto-copy-btn" onclick="copyCryptoText(event, '${escapedText}')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                <span class="copy-label">Copy</span>
+            </button>
+        </div>
+    `;
+}
+
+function copyCryptoText(event, text) {
+    if (event) event.stopPropagation();
+    const btn = event?.currentTarget;
+    const cleanText = String(text).replace(/\.\.\.$/, '');
+    navigator.clipboard.writeText(cleanText).then(() => {
+        if (btn) {
+            const labelEl = btn.querySelector('.copy-label');
+            const orig = labelEl ? labelEl.textContent : 'Copy';
+            btn.classList.add('copied');
+            if (labelEl) labelEl.textContent = 'Copied!';
+            setTimeout(() => {
+                btn.classList.remove('copied');
+                if (labelEl) labelEl.textContent = orig;
+            }, 1800);
+        }
+    }).catch(err => {
+        console.error('Failed to copy: ', err);
+    });
+}
+
 function renderStepDetails(containerId, index, stepData) {
     const panel = document.getElementById(`${containerId}-details-${index}`);
     if (!panel) return;
@@ -170,6 +209,15 @@ function renderStepDetails(containerId, index, stepData) {
             if (Array.isArray(value)) displayVal = value.join(', ');
             if (typeof value === 'boolean') displayVal = value ? '✓ Yes' : '✗ No';
             if (typeof value === 'object' && value !== null && !Array.isArray(value)) displayVal = JSON.stringify(value);
+
+            if (typeof displayVal === 'string' && (
+                key.includes('hash') || key.includes('root') || key.includes('fingerprint') ||
+                key.includes('certificate_id') || key.includes('tx_') || key.includes('signature') ||
+                (/^[0-9a-fA-F\.]{16,}$/.test(displayVal))
+            )) {
+                displayVal = formatCryptoChip(displayVal, label);
+            }
+
             html += `<div class="detail-key">${label}</div>`;
             html += `<div class="detail-val">${displayVal}</div>`;
         }
@@ -337,7 +385,44 @@ function showFailureBanner(elementId, failedStep) {
     el.classList.add('visible');
 }
 
-// ═══════════════════ DRAG & DROP ═══════════════════
+// ═══════════════════ DRAG & DROP & SMART VALIDATION ═══════════════════
+
+function showDropzoneWarning(dropzone, message) {
+    if (!dropzone) return;
+    dropzone.classList.add('drag-invalid');
+    let toast = dropzone.querySelector('.drag-warning-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.className = 'drag-warning-toast';
+        dropzone.appendChild(toast);
+    }
+    toast.textContent = message;
+    setTimeout(() => {
+        dropzone.classList.remove('drag-invalid');
+        if (toast && toast.parentNode === dropzone) {
+            dropzone.removeChild(toast);
+        }
+    }, 3500);
+}
+
+function checkDragItemValidity(e, expectedExtension) {
+    if (!expectedExtension || !e.dataTransfer || !e.dataTransfer.items) return true;
+    for (let i = 0; i < e.dataTransfer.items.length; i++) {
+        const item = e.dataTransfer.items[i];
+        if (item.kind === 'file' && item.type) {
+            if (expectedExtension === '.xml') {
+                if (!item.type.includes('xml') && !item.type.includes('text') && item.type !== '') {
+                    return false;
+                }
+            } else if (expectedExtension === '.zip') {
+                if (item.type.includes('image/') || item.type.includes('video/') || item.type.includes('text/') || item.type.includes('pdf')) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
 
 function setupDragAndDrop() {
     const sealDropzone = document.getElementById('seal-dropzone');
@@ -352,9 +437,9 @@ function setupDragAndDrop() {
             sealFile = file;
             displaySealFileInfo(file);
         } else {
-            alert('Only XML files are supported.');
+            showDropzoneWarning(sealDropzone, '⚠ Invalid format: Only .XML DCC calibration documents supported.');
         }
-    });
+    }, '.xml');
 
     pdfUpload.addEventListener('change', (e) => {
         if (e.target.files.length > 0) {
@@ -363,7 +448,7 @@ function setupDragAndDrop() {
                 sealFile = file;
                 displaySealFileInfo(file);
             } else {
-                alert('Only XML files are supported.');
+                showDropzoneWarning(sealDropzone, '⚠ Invalid format: Only .XML DCC calibration documents supported.');
             }
         }
     });
@@ -374,12 +459,19 @@ function setupDragAndDrop() {
     });
 }
 
-function setupDropzoneListeners(dropzone, input, onFileSelect) {
+function setupDropzoneListeners(dropzone, input, onFileSelect, expectedExtension) {
+    if (!dropzone) return;
     ['dragenter', 'dragover'].forEach(eventName => {
         dropzone.addEventListener(eventName, (e) => {
             e.preventDefault();
             e.stopPropagation();
-            dropzone.classList.add('dragover');
+            if (!checkDragItemValidity(e, expectedExtension)) {
+                dropzone.classList.add('drag-invalid');
+                dropzone.classList.remove('dragover');
+            } else {
+                dropzone.classList.add('dragover');
+                dropzone.classList.remove('drag-invalid');
+            }
         }, false);
     });
 
@@ -387,27 +479,35 @@ function setupDropzoneListeners(dropzone, input, onFileSelect) {
         dropzone.addEventListener(eventName, (e) => {
             e.preventDefault();
             e.stopPropagation();
-            dropzone.classList.remove('dragover');
+            dropzone.classList.remove('dragover', 'drag-invalid');
         }, false);
     });
 
     dropzone.addEventListener('drop', (e) => {
         const files = e.dataTransfer.files;
-        if (files.length > 0) onFileSelect(files[0]);
+        if (files.length > 0) {
+            const file = files[0];
+            if (expectedExtension && !file.name.endsWith(expectedExtension) && !(expectedExtension === '.xml' && (file.type === 'text/xml' || file.type === 'application/xml'))) {
+                showDropzoneWarning(dropzone, `⚠ Invalid file format. Expected an ${expectedExtension.toUpperCase()} document.`);
+            } else {
+                onFileSelect(file);
+            }
+        }
     });
 }
 
 function setupFieldDropzone(dropzoneId, inputId, extension, onSelect) {
     const dropzone = document.getElementById(dropzoneId);
     const input = document.getElementById(inputId);
+    if (!dropzone || !input) return;
 
     setupDropzoneListeners(dropzone, input, (file) => {
         if (file.name.endsWith(extension)) {
             onSelect(file);
         } else {
-            alert(`Expected a file with extension: ${extension}`);
+            showDropzoneWarning(dropzone, `⚠ Invalid format: Expected a file with extension ${extension}`);
         }
-    });
+    }, extension);
 
     input.addEventListener('change', (e) => {
         if (e.target.files.length > 0) {
@@ -415,7 +515,7 @@ function setupFieldDropzone(dropzoneId, inputId, extension, onSelect) {
             if (file.name.endsWith(extension)) {
                 onSelect(file);
             } else {
-                alert(`Expected a file with extension: ${extension}`);
+                showDropzoneWarning(dropzone, `⚠ Invalid format: Expected a file with extension ${extension}`);
             }
         }
     });
@@ -537,7 +637,7 @@ async function sealDocument() {
             const fieldCount = apiResult.field_count || 31;
 
             // Show summary
-            showSealSummary(fieldCount, totalTime);
+            showSealSummary(fieldCount, totalTime, apiResult);
 
             // Show download button
             const dlWrap = document.getElementById('seal-download-wrap');
@@ -604,8 +704,11 @@ async function sealDocument() {
     }
 }
 
-function showSealSummary(fieldCount, totalTime) {
+function showSealSummary(fieldCount, totalTime, apiResult) {
     const el = document.getElementById('seal-summary');
+    const hashRow = apiResult && apiResult.hash 
+        ? `<div class="stat-row"><span class="stat-label">Document Root</span><span class="stat-value">${formatCryptoChip(apiResult.hash, 'Merkle Root')}</span></div>`
+        : '';
     el.innerHTML = `
         <div class="summary-header">${SVG_CHECK_SM} ✓ Sealing Complete</div>
         <div class="summary-body">
@@ -614,6 +717,7 @@ function showSealSummary(fieldCount, totalTime) {
             <div class="stat-row"><span class="stat-label">Signature</span><span class="stat-value">RSA-4096</span></div>
             <div class="stat-row"><span class="stat-label">Encryption</span><span class="stat-value">AES-256-GCM</span></div>
             <div class="stat-row"><span class="stat-label">Blockchain</span><span class="stat-value">Ethereum Sepolia</span></div>
+            ${hashRow}
             <div class="stat-row"><span class="stat-label">Total time</span><span class="stat-value green">${totalTime.toFixed(1)}s</span></div>
         </div>
     `;
@@ -745,6 +849,9 @@ async function verifyDocument() {
 
 function showVerifySummary(result, intactCount, totalFields, tamperedCount, totalTime) {
     const el = document.getElementById('verify-summary');
+    const hashRow = result && (result.hash || result.merkle_root)
+        ? `<div class="stat-row"><span class="stat-label">Verified Root</span><span class="stat-value">${formatCryptoChip(result.hash || result.merkle_root, 'Verified Root')}</span></div>`
+        : '';
     el.innerHTML = `
         <div class="summary-header">${SVG_CHECK_SM} ✓ Verification Passed</div>
         <div class="summary-body">
@@ -753,6 +860,7 @@ function showVerifySummary(result, intactCount, totalFields, tamperedCount, tota
             <div class="stat-row"><span class="stat-label">Blockchain</span><span class="stat-value green">${result.root_matches ? 'Confirmed  ✓' : 'Mismatch  ✗'}</span></div>
             <div class="stat-row"><span class="stat-label">Tampered fields</span><span class="stat-value">${tamperedCount}</span></div>
             <div class="stat-row"><span class="stat-label">Verdict</span><span class="stat-value green">AUTHENTIC</span></div>
+            ${hashRow}
             <div class="stat-row"><span class="stat-label">Total time</span><span class="stat-value green">${totalTime.toFixed(1)}s</span></div>
         </div>
     `;
