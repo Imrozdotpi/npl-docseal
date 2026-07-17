@@ -1541,3 +1541,21 @@ body {
     color: var(--text-muted);
     border: 1px dashed var(--border-strong);
 }
+
+/* ═══════════════════ CERTIFICATE PDF PREVIEW ═══════════════════ */
+
+.pdf-preview-card {
+    margin-top: 16px;
+    height: 520px;
+    display: flex;
+    flex-direction: column;
+}
+
+.pdf-preview-frame {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-sunken);
+}
