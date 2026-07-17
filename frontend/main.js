@@ -85,6 +85,12 @@ function switchTab(tabId) {
         descEl.textContent = 'Inspect historical sealing and verification logs.';
         loadAuditLogs();
     }
+
+    if (tabId === 'audit') {
+        if (typeof startAuditPolling === 'function') startAuditPolling();
+    } else {
+        if (typeof stopAuditPolling === 'function') stopAuditPolling();
+    }
 }
 
 // ═══════════════════ PIPELINE UI BUILDER ═══════════════════
@@ -236,9 +242,9 @@ function renderStepDetails(containerId, index, stepData) {
     // Section: Status
     html += '<div class="detail-section-title">Status</div>';
     if (stepData.status === 'completed') {
-        html += '<span class="detail-status-badge status-completed">✅ Completed Successfully</span>';
+        html += '<span class="detail-status-badge status-completed">Completed Successfully</span>';
     } else if (stepData.status === 'failed') {
-        html += '<span class="detail-status-badge status-failed">❌ Failed</span>';
+        html += '<span class="detail-status-badge status-failed">Failed</span>';
     }
 
     html += '</div>'; // close detail-panel-inner
@@ -710,7 +716,7 @@ function showSealSummary(fieldCount, totalTime, apiResult) {
         ? `<div class="stat-row"><span class="stat-label">Document Root</span><span class="stat-value">${formatCryptoChip(apiResult.hash, 'Merkle Root')}</span></div>`
         : '';
     el.innerHTML = `
-        <div class="summary-header">${SVG_CHECK_SM} ✓ Sealing Complete</div>
+        <div class="summary-header">${SVG_CHECK_SM} Sealing Complete</div>
         <div class="summary-body">
             <div class="stat-row"><span class="stat-label">Fields processed</span><span class="stat-value">${fieldCount}</span></div>
             <div class="stat-row"><span class="stat-label">Hashes computed</span><span class="stat-value">${fieldCount} (SHA-256)</span></div>
@@ -810,7 +816,7 @@ async function verifyDocument() {
         if (recoveredData) {
             const dlWrap = document.getElementById('verify-download-wrap');
             dlWrap.classList.add('visible');
-            const spanText = recoveredFilename.endsWith('.xml') ? '⬇ Download Decrypted XML' : '⬇ Download Original Document';
+            const spanText = recoveredFilename.endsWith('.xml') ? 'Download Decrypted XML' : 'Download Original Document';
             document.getElementById('verify-download-text').textContent = spanText;
             document.getElementById('verify-download-sub').textContent = recoveredFilename;
             const dlBtn = document.getElementById('btn-download-recovered');
@@ -853,7 +859,7 @@ function showVerifySummary(result, intactCount, totalFields, tamperedCount, tota
         ? `<div class="stat-row"><span class="stat-label">Verified Root</span><span class="stat-value">${formatCryptoChip(result.hash || result.merkle_root, 'Verified Root')}</span></div>`
         : '';
     el.innerHTML = `
-        <div class="summary-header">${SVG_CHECK_SM} ✓ Verification Passed</div>
+        <div class="summary-header">${SVG_CHECK_SM} Verification Passed</div>
         <div class="summary-body">
             <div class="stat-row"><span class="stat-label">Fields checked</span><span class="stat-value green">${intactCount} / ${totalFields}  ✓</span></div>
             <div class="stat-row"><span class="stat-label">Signature</span><span class="stat-value green">${result.signature_valid ? 'Valid  ✓' : 'Invalid  ✗'}</span></div>
@@ -909,15 +915,15 @@ function renderFieldReport(fields) {
 function downloadSealedZip() {
     if (!sealedZipData || !sealedZipFilename) return;
     downloadBase64File(sealedZipData, sealedZipFilename, 'application/zip');
-    flashDownloadButton('seal-download-text', '✓ Download started', '⬇ Download Sealed ZIP');
+    flashDownloadButton('seal-download-text', 'Download started', 'Download Sealed ZIP');
 }
 
 function downloadRecoveredDocument() {
     if (!recoveredData || !recoveredFilename) return;
     const mime = recoveredFilename.endsWith('.xml') ? 'text/xml' : 'application/octet-stream';
     downloadBase64File(recoveredData, recoveredFilename, mime);
-    const label = recoveredFilename.endsWith('.xml') ? '⬇ Download Decrypted XML' : '⬇ Download Original Document';
-    flashDownloadButton('verify-download-text', '✓ Download started', label);
+    const label = recoveredFilename.endsWith('.xml') ? 'Download Decrypted XML' : 'Download Original Document';
+    flashDownloadButton('verify-download-text', 'Download started', label);
 }
 
 function downloadBase64File(base64Data, filename, mimeType) {
@@ -969,9 +975,11 @@ function showErrorCard(elementId, title, message) {
 // ═══════════════════ AUDIT LOG ═══════════════════
 
 function loadAuditLogs() {
+    const tbody = document.getElementById('audit-table-body');
+    if (!tbody) return; // legacy table replaced by the Audit Log dashboard panels
+
     const logsJson = localStorage.getItem('npl_audit_logs');
     const logs = logsJson ? JSON.parse(logsJson) : [];
-    const tbody = document.getElementById('audit-table-body');
     tbody.innerHTML = '';
 
     if (logs.length === 0) {

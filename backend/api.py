@@ -7,9 +7,10 @@ import zipfile
 import json
 import time
 import hashlib as _hashlib
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +22,7 @@ from core.encryptor import encrypt_file, decrypt_file
 from core.timestamper import stamp_file, verify_timestamp, upgrade_timestamp
 from core.xml_parser import parse_xml
 from core.merkle import build_merkle_tree, compare_trees
+from core import audit_db
 
 app = FastAPI(
     title="NPL DocSeal Dashboard API",
@@ -37,8 +39,124 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+audit_db.init_db()
+
 PRIVATE_KEY = Path("keys/private_key.pem")
 PUBLIC_KEY = Path("keys/public_key.pem")
+
+
+def _detect_file_format(filepath: str) -> str:
+    """Best-effort schema detection from the XML root tag, for audit logging only."""
+    try:
+        root_tag = ET.parse(filepath).getroot().tag
+        if "}" in root_tag:
+            root_tag = root_tag.split("}", 1)[1]
+        if root_tag == "digitalCalibrationCertificate":
+            return "dcc_xml"
+        if root_tag == "CalibrationCertificate":
+            return "flat_xml"
+        return root_tag or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _steps_lookup(steps):
+    return {s["step"]: s for s in steps}
+
+
+def _step_detail(steps_map, step_id, key, default=None):
+    s = steps_map.get(step_id)
+    if not s:
+        return default
+    return s.get("details", {}).get(key, default)
+
+
+def _step_duration(steps_map, step_id):
+    s = steps_map.get(step_id)
+    if not s:
+        return None
+    return s.get("duration_ms")
+
+
+def _safe_log_seal(steps, test_scenario, filename, file_format, overall_status):
+    """Log a seal operation to the audit DB, built from the steps[] telemetry.
+    Never lets a logging failure break the actual seal response."""
+    try:
+        smap = _steps_lookup(steps)
+        hash_ms = _step_duration(smap, "field_hashing")
+        tree_ms = _step_duration(smap, "merkle_tree")
+        merkle_ms = (hash_ms or 0) + (tree_ms or 0) if (hash_ms is not None or tree_ms is not None) else None
+
+        record = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "operation_type": "seal",
+            "filename": filename,
+            "file_size_bytes": _step_detail(smap, "file_received", "file_size_bytes"),
+            "file_format": file_format,
+            "parse_duration_ms": _step_duration(smap, "xml_parsing"),
+            "merkle_duration_ms": merkle_ms,
+            "sign_duration_ms": _step_duration(smap, "rsa_signature"),
+            "encrypt_duration_ms": _step_duration(smap, "aes_encryption"),
+            "blockchain_duration_ms": _step_duration(smap, "blockchain_anchor"),
+            "total_duration_ms": sum((s.get("duration_ms") or 0) for s in steps),
+            "field_count": _step_detail(smap, "field_hashing", "hash_count"),
+            "tx_hash": _step_detail(smap, "blockchain_anchor", "tx_hash"),
+            "block_number": _step_detail(smap, "blockchain_anchor", "block_number"),
+            "confirmation_time_ms": _step_detail(smap, "blockchain_anchor", "confirmation_time_ms"),
+            "etherscan_url": _step_detail(smap, "blockchain_anchor", "explorer_url"),
+            "test_scenario": test_scenario,
+            "overall_status": overall_status,
+        }
+        audit_db.log_operation(record)
+    except Exception as e:
+        print(f"[audit_db] Failed to log seal operation: {e}")
+
+
+def _safe_log_verify(steps, test_scenario, filename, file_format, overall_status,
+                      signature_valid, root_matches, fields_report):
+    """Log a verify operation to the audit DB, built from the steps[] telemetry.
+    Never lets a logging failure break the actual verify response."""
+    try:
+        smap = _steps_lookup(steps)
+        hash_ms = _step_duration(smap, "hash_recompute")
+        tree_ms = _step_duration(smap, "merkle_rebuild")
+        merkle_ms = (hash_ms or 0) + (tree_ms or 0) if (hash_ms is not None or tree_ms is not None) else None
+
+        fields_report = fields_report or {}
+        intact_count = sum(1 for v in fields_report.values() if v.get("status") == "INTACT")
+        tampered_count = sum(1 for v in fields_report.values() if v.get("status") == "TAMPERED")
+        missing_count = sum(1 for v in fields_report.values() if v.get("status") == "MISSING")
+        tampered_names = [k for k, v in fields_report.items() if v.get("status") == "TAMPERED"]
+
+        record = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "operation_type": "verify",
+            "filename": filename,
+            "file_size_bytes": _step_detail(smap, "zip_received", "file_size_bytes"),
+            "file_format": file_format,
+            "parse_duration_ms": _step_duration(smap, "xml_parsing"),
+            "merkle_duration_ms": merkle_ms,
+            "verify_sig_duration_ms": _step_duration(smap, "signature_verify"),
+            "decrypt_duration_ms": _step_duration(smap, "decryption"),
+            "compare_duration_ms": _step_duration(smap, "field_integrity"),
+            "blockchain_duration_ms": _step_duration(smap, "blockchain_verify"),
+            "total_duration_ms": sum((s.get("duration_ms") or 0) for s in steps),
+            "field_count": len(fields_report) if fields_report else None,
+            "intact_count": intact_count if fields_report else None,
+            "tampered_count": tampered_count if fields_report else None,
+            "missing_count": missing_count if fields_report else None,
+            "tampered_field_names": json.dumps(tampered_names) if fields_report else None,
+            "signature_valid": 1 if signature_valid else 0,
+            "root_matches": 1 if root_matches else 0,
+            "tx_hash": _step_detail(smap, "blockchain_verify", "tx_hash"),
+            "block_number": _step_detail(smap, "blockchain_verify", "block_height"),
+            "etherscan_url": _step_detail(smap, "blockchain_verify", "explorer_url"),
+            "test_scenario": test_scenario,
+            "overall_status": overall_status,
+        }
+        audit_db.log_operation(record)
+    except Exception as e:
+        print(f"[audit_db] Failed to log verify operation: {e}")
 
 # ═══════════════════ Step metadata helpers ═══════════════════
 
@@ -125,7 +243,8 @@ def _fmt_size(size_bytes):
 async def seal_document(
     document: UploadFile = File(...),
     password: str = Form(...),
-    keypass: str = Form(...)
+    keypass: str = Form(...),
+    test_scenario: str | None = Form(None)
 ):
     """
     Seal XML document by parsing it, building a Merkle tree, signing the Merkle root,
@@ -133,6 +252,8 @@ async def seal_document(
     Returns step-by-step execution metadata.
     """
     steps = []
+    original_filename = None
+    file_format = None
 
     # Pre-checks
     if not PRIVATE_KEY.exists():
@@ -142,6 +263,7 @@ async def seal_document(
             error={"message": "keys/private_key.pem not found on server.",
                    "suggestion": "Ensure the private key file exists at the configured path."}))
         _add_remaining_skipped(steps, SEAL_STEP_DEFS, 1)
+        _safe_log_seal(steps, test_scenario, original_filename, file_format, "FAIL")
         return JSONResponse(content={"overall": "FAIL", "steps": steps})
 
     if not PUBLIC_KEY.exists():
@@ -151,6 +273,7 @@ async def seal_document(
             error={"message": "keys/public_key.pem not found on server.",
                    "suggestion": "Ensure the public key file exists at the configured path."}))
         _add_remaining_skipped(steps, SEAL_STEP_DEFS, 1)
+        _safe_log_seal(steps, test_scenario, original_filename, file_format, "FAIL")
         return JSONResponse(content={"overall": "FAIL", "steps": steps})
 
     temp_dir = Path(tempfile.mkdtemp(dir="."))
@@ -183,6 +306,7 @@ async def seal_document(
         t2 = time.time()
         try:
             parsed = parse_xml(str(temp_filepath))
+            file_format = _detect_file_format(str(temp_filepath))
             t2e = time.time()
             field_count_estimate = len(parsed)
             steps.append(_make_step("xml_parsing", "Reading XML Fields", "completed", t2, t2e,
@@ -396,6 +520,8 @@ async def seal_document(
         }
 
     finally:
+        overall_status = "PASS" if (steps and steps[-1].get("step") == "complete") else "FAIL"
+        _safe_log_seal(steps, test_scenario, original_filename, file_format, overall_status)
         try:
             shutil.rmtree(temp_dir)
         except Exception:
@@ -407,7 +533,8 @@ async def seal_document(
 @app.post("/api/verify")
 async def verify_document(
     document_zip: UploadFile = File(...),
-    password: str = Form(...)
+    password: str = Form(...),
+    test_scenario: str | None = Form(None)
 ):
     """
     Verify & Recover document from a single ZIP package using Merkle tree validation.
@@ -424,6 +551,7 @@ async def verify_document(
     temp_proof_name = f"temp_{uuid_str}_proof.json"
     temp_dec_name = f"temp_{uuid_str}"
     original_filename = "recovered_document.xml"
+    file_format = None
 
     steps = []
     # Result accumulators
@@ -432,6 +560,7 @@ async def verify_document(
     fields_report = {}
     timestamp_info = {"status": "failed", "detail": "Not checked."}
     decrypted_data_base64 = None
+    overall = "FAIL"
 
     try:
         # ── Step 1: ZIP received ──
@@ -542,6 +671,7 @@ async def verify_document(
         t4 = time.time()
         try:
             current_parsed = parse_xml(str(decrypted_filepath))
+            file_format = _detect_file_format(str(decrypted_filepath))
             t4e = time.time()
             steps.append(_make_step("xml_parsing", "Parsing Certificate Fields", "completed", t4, t4e,
                 f"Certificate fields extracted from decrypted XML.",
@@ -741,6 +871,8 @@ async def verify_document(
         }
 
     finally:
+        _safe_log_verify(steps, test_scenario, original_filename, file_format, overall,
+                          signature_valid, root_matches, fields_report)
         try:
             shutil.rmtree(temp_dir)
         except Exception:
@@ -751,6 +883,50 @@ async def verify_document(
                     os.remove(filename)
             except Exception:
                 pass
+
+
+# ─────────────────────────────────────────────────────────────────
+# Audit dashboard endpoints (Tab 3)
+# NOTE: no authentication/authorization — this is fine for this
+# internship-scope project, but would need auth in production.
+# ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/audit/summary")
+async def audit_summary():
+    return audit_db.get_summary_stats()
+
+
+@app.get("/api/audit/operations")
+async def audit_operations(limit: int = Query(100)):
+    return audit_db.get_all_operations(limit=limit)
+
+
+@app.get("/api/audit/operations/since")
+async def audit_operations_since(ts: str = Query(...)):
+    return audit_db.get_operations_since(ts)
+
+
+@app.get("/api/audit/field-tampers")
+async def audit_field_tampers():
+    return audit_db.get_field_tamper_frequency()
+
+
+@app.get("/api/audit/coverage-matrix")
+async def audit_coverage_matrix():
+    return audit_db.get_test_coverage_matrix()
+
+
+@app.get("/api/audit/duration-series")
+async def audit_duration_series(type: str = Query("seal"), limit: int = Query(50)):
+    return audit_db.get_duration_breakdown_series(operation_type=type, limit=limit)
+
+
+@app.post("/api/audit/clear")
+async def audit_clear(confirm: bool = Query(False)):
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Pass confirm=true to clear the audit log.")
+    audit_db.clear_all_logs()
+    return {"status": "cleared"}
 
 
 # Serve the static frontend folder

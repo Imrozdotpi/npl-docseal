@@ -7,8 +7,9 @@
     <meta name="description" content="NPL DocSeal cryptographic document sealing and verification dashboard">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=13">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=14">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -21,21 +22,21 @@
 
             <nav class="nav-menu">
                 <button id="nav-btn-seal" class="nav-item active" onclick="switchTab('seal')">
-                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                         <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
                         <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                     </svg>
                     <span>Seal Document</span>
                 </button>
                 <button id="nav-btn-verify" class="nav-item" onclick="switchTab('verify')">
-                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                         <path d="m9 11 2 2 4-4"/>
                     </svg>
                     <span>Verify & Recover</span>
                 </button>
                 <button id="nav-btn-audit" class="nav-item" onclick="switchTab('audit')">
-                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                         <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
                         <polyline points="14 2 14 8 20 8"/>
                         <line x1="8" y1="13" x2="16" y2="13"/>
@@ -87,7 +88,7 @@
                             <div class="dropzone-container">
                                 <label for="pdf-upload" class="dropzone" id="seal-dropzone">
                                     <input type="file" id="pdf-upload" accept="application/xml,.xml" style="display: none;">
-                                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                                         <polyline points="17 8 12 3 7 8"/>
                                         <line x1="12" y1="3" x2="12" y2="15"/>
@@ -98,7 +99,7 @@
                                     </div>
                                 </label>
                                 <div id="seal-file-info" class="selected-file-info" style="display: none;">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="color: #16a34a; flex-shrink: 0;">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16" style="color: #16a34a; flex-shrink: 0;">
                                         <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
                                     </svg>
                                     <span class="file-name-text">filename.xml</span>
@@ -120,7 +121,7 @@
                             <div id="seal-api-error" class="api-error-banner"></div>
 
                             <button id="btn-seal" class="btn btn-primary" onclick="sealDocument()">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16">
                                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
                                     <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                                 </svg>
@@ -141,12 +142,12 @@
                             <!-- Download button -->
                             <div id="seal-download-wrap" class="download-wrap">
                                 <button class="download-btn" id="btn-download-zip" onclick="downloadSealedZip()">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20">
                                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                                         <polyline points="7 10 12 15 17 10"/>
                                         <line x1="12" y1="15" x2="12" y2="3"/>
                                     </svg>
-                                    <span id="seal-download-text">⬇ Download Sealed ZIP</span>
+                                    <span id="seal-download-text">Download Sealed ZIP</span>
                                 </button>
                                 <div class="download-sub" id="seal-download-sub">Sealed archive ready</div>
                             </div>
@@ -166,7 +167,7 @@
                                 <label for="zip-upload" class="field-dropzone" id="zip-dropzone">
                                     <input type="file" id="zip-upload" accept=".zip" style="display: none;">
                                     <div class="field-dropzone-inner">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16">
                                             <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
                                             <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
                                             <line x1="12" y1="22.08" x2="12" y2="12"/>
@@ -184,7 +185,7 @@
                             <div id="verify-api-error" class="api-error-banner"></div>
 
                             <button id="btn-verify" class="btn btn-primary" onclick="verifyDocument()">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16">
                                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                                     <path d="m9 11 2 2 4-4"/>
                                 </svg>
@@ -211,12 +212,12 @@
                             <!-- Download button -->
                             <div id="verify-download-wrap" class="download-wrap">
                                 <button class="download-btn" id="btn-download-recovered" onclick="downloadRecoveredDocument()">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="20" height="20">
                                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                                         <polyline points="7 10 12 15 17 10"/>
                                         <line x1="12" y1="15" x2="12" y2="3"/>
                                     </svg>
-                                    <span id="verify-download-text">⬇ Download Verified Certificate</span>
+                                    <span id="verify-download-text">Download Verified Certificate</span>
                                 </button>
                                 <div class="download-sub" id="verify-download-sub">Decrypted document ready</div>
                             </div>
@@ -226,24 +227,65 @@
 
                 <!-- ══════ TAB 3: AUDIT LOG ══════ -->
                 <section id="tab-audit" class="tab-content">
-                    <div class="card audit-card">
-                        <div class="card-header">
-                            <h3>Transaction Logs</h3>
-                            <button class="btn btn-danger btn-sm" onclick="clearAudit()">Clear Log</button>
+                    <div class="audit-subnav">
+                        <button class="audit-subtab active" data-panel="performance" onclick="switchAuditPanel('performance')">Performance Metrics</button>
+                        <button class="audit-subtab" data-panel="validation" onclick="switchAuditPanel('validation')">Validation &amp; Tamper Stats</button>
+                        <button class="audit-subtab" data-panel="coverage" onclick="switchAuditPanel('coverage')">Test Coverage Matrix</button>
+                        <button class="audit-subtab" data-panel="blockchain" onclick="switchAuditPanel('blockchain')">Blockchain Anchor Log</button>
+                        <button class="btn btn-danger btn-sm audit-clear-btn" onclick="clearAudit()">Clear Log</button>
+                    </div>
+
+                    <div id="audit-panel-performance" class="audit-panel active">
+                        <div class="metric-cards-row" id="perf-summary-cards"></div>
+                        <div class="card chart-card">
+                            <h3>Duration Breakdown (Seal Pipeline)</h3>
+                            <canvas id="chart-duration-breakdown"></canvas>
                         </div>
-                        <div class="table-container">
-                            <table class="audit-table">
-                                <thead>
-                                    <tr>
-                                        <th>File Name</th>
-                                        <th>Timestamp</th>
-                                        <th>SHA-256 Hash</th>
-                                        <th>Action & Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="audit-table-body">
-                                </tbody>
-                            </table>
+                        <div class="card chart-card">
+                            <h3>File Size vs. Total Duration</h3>
+                            <canvas id="chart-filesize-vs-time"></canvas>
+                        </div>
+                        <div class="card chart-card">
+                            <h3>Avg Sign Time vs. Avg Verify Time</h3>
+                            <canvas id="chart-sign-vs-verify"></canvas>
+                        </div>
+                    </div>
+
+                    <div id="audit-panel-validation" class="audit-panel">
+                        <div class="card chart-card">
+                            <h3>Field Status Overview</h3>
+                            <canvas id="chart-field-status-donut"></canvas>
+                        </div>
+                        <div class="card chart-card">
+                            <h3>Tamper Frequency by Field</h3>
+                            <canvas id="chart-tamper-frequency"></canvas>
+                        </div>
+                        <div class="card audit-card">
+                            <h3>Validation Log</h3>
+                            <div class="table-container">
+                                <table class="audit-table" id="validation-log-table"></table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="audit-panel-coverage" class="audit-panel">
+                        <div class="card audit-card">
+                            <h3>Test Coverage Matrix</h3>
+                            <p class="page-desc" style="margin-bottom: 1rem;">Rows = file format, columns = test scenario. Each cell shows pass/fail counts.</p>
+                            <div id="coverage-matrix-grid"></div>
+                        </div>
+                    </div>
+
+                    <div id="audit-panel-blockchain" class="audit-panel">
+                        <div class="card chart-card">
+                            <h3>Blockchain Confirmation Times</h3>
+                            <canvas id="chart-confirmation-times"></canvas>
+                        </div>
+                        <div class="card audit-card">
+                            <h3>Blockchain Anchor Log</h3>
+                            <div class="table-container">
+                                <table class="audit-table" id="blockchain-log-table"></table>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -252,6 +294,7 @@
         </main>
     </div>
 
-    <script src="main.js?v=13"></script>
+    <script src="main.js?v=14"></script>
+    <script src="audit.js?v=14"></script>
 </body>
 </html>
