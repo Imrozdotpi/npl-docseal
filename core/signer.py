@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
@@ -171,3 +172,15 @@ def verify_bytes(
     except InvalidSignature:
 
         return False
+
+
+def get_public_key_fingerprint(public_key_path: str) -> str:
+    """
+    SHA-256 hex digest of the raw public key PEM bytes. Lets the public
+    registry display "which NPL key issued this" without exposing the
+    key file itself.
+    """
+    with open(public_key_path, "rb") as f:
+        pem_bytes = f.read()
+
+    return hashlib.sha256(pem_bytes).hexdigest()

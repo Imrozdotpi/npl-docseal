@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=31">
+    <link rel="stylesheet" href="/shared/style.css?v=31">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -34,6 +34,13 @@
                         <path d="m9 11 2 2 4-4"/>
                     </svg>
                     <span>Verify & Recover</span>
+                </button>
+                <button id="nav-btn-revoke" class="nav-item" onclick="switchTab('revoke')">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/>
+                    </svg>
+                    <span>Revoke</span>
                 </button>
                 <button id="nav-btn-audit" class="nav-item" onclick="switchTab('audit')">
                     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -315,6 +322,37 @@
                     </div>
                 </section>
 
+                <!-- ══════ TAB: REVOKE (registry-based) ══════ -->
+                <section id="tab-revoke" class="tab-content">
+                    <div class="card-grid">
+                        <div class="card input-card">
+                            <h3>Revoke a Certificate</h3>
+                            <p class="page-desc" style="margin-bottom: 1rem;">
+                                This is the revocation that actually matters going forward: it
+                                updates the public registry that <code>/api/public/verify</code>
+                                (and the public verification page) checks. A revoked certificate
+                                will report REVOKED to any third party, even though it remains
+                                cryptographically valid.
+                            </p>
+                            <div class="form-group">
+                                <label for="registry-revoke-cert-number">Certificate Number</label>
+                                <input type="text" id="registry-revoke-cert-number" placeholder="e.g. N25040063/D2.02/C-029">
+                            </div>
+                            <div class="form-group">
+                                <label for="registry-revoke-reason">Reason</label>
+                                <input type="text" id="registry-revoke-reason" placeholder="e.g. Calibration reading error discovered post-issuance">
+                            </div>
+                            <div class="form-group">
+                                <label for="registry-revoke-keypass">Director's Key Passphrase</label>
+                                <input type="password" id="registry-revoke-keypass" placeholder="Authorizes this revocation">
+                            </div>
+                            <div id="registry-revoke-api-error" class="api-error-banner"></div>
+                            <button id="btn-registry-revoke" class="btn btn-primary" onclick="submitRegistryRevoke()">Revoke Certificate</button>
+                            <div id="registry-revoke-result" class="pipeline-summary"></div>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- ══════ TAB 3: AUDIT LOG ══════ -->
                 <section id="tab-audit" class="tab-content">
                     <div class="audit-subnav">
@@ -420,7 +458,7 @@
         </main>
     </div>
 
-    <script src="main.js?v=23"></script>
+    <script src="main.js?v=24"></script>
     <script src="audit.js?v=20"></script>
 </body>
 </html>

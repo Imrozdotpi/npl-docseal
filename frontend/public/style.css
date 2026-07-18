@@ -1,0 +1,63 @@
+/* Layout chrome for the standalone public verification page only.
+   Design tokens, buttons, cards, tables, and banners all come from
+   /shared/style.css (the same design system as the internal dashboard) -
+   this file just replaces the sidebar+dashboard layout with a single
+   centered column, since this page is deliberately a single-purpose
+   checker, not a dashboard. */
+
+body.public-verify-body {
+    height: auto;
+    min-height: 100vh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    display: flex;
+    justify-content: center;
+    padding: 56px 24px;
+}
+
+.public-verify-page {
+    width: 100%;
+    max-width: 640px;
+}
+
+.public-verify-header {
+    text-align: center;
+    margin-bottom: 28px;
+}
+
+.public-verify-header h1 {
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+}
+
+.public-verify-header .page-desc {
+    font-size: 14px;
+    line-height: 1.6;
+    max-width: 520px;
+    margin: 0 auto;
+}
+
+#public-verify-result {
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.result-unknown {
+    padding: 24px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.result-unknown .summary-header {
+    color: var(--text-muted);
+    justify-content: center;
+}
+
+.field-status-INTACT { color: var(--accent-green); font-weight: 600; }
+.field-status-TAMPERED { color: var(--accent-red); font-weight: 600; }
+.field-status-MISSING { color: var(--text-muted); font-weight: 600; }
