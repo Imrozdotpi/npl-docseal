@@ -6,6 +6,7 @@ import base64
 import zipfile
 import json
 import time
+import asyncio
 import hashlib as _hashlib
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -14,16 +15,19 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 # Import core modules exactly
 from core.hasher import hash_file
 from core.signer import sign_file, verify_signature, sign_bytes, verify_bytes
 from core.encryptor import encrypt_file, decrypt_file
-from core.timestamper import stamp_file, verify_timestamp, upgrade_timestamp
+from core.timestamper import stamp_file, verify_timestamp, upgrade_timestamp, CHAIN_ID
 from core.xml_parser import parse_xml
 from core.merkle import build_merkle_tree, compare_trees
 from core.pdf_generator import generate_pdf
 from core import audit_db
+from core import revocation
+from core.batch_anchor import BatchQueue
 
 app = FastAPI(
     title="NPL DocSeal Dashboard API",
@@ -44,6 +48,43 @@ audit_db.init_db()
 
 PRIVATE_KEY = Path("keys/private_key.pem")
 PUBLIC_KEY = Path("keys/public_key.pem")
+
+# ─────────────────────────────────────────────────────────────────
+# Batch Merkle anchoring — module-level singletons (Feature 2, sprint).
+# _batch_records maps a per-seal document_id (returned to the client as
+# "batch_id" — one per queued document, not one per shared batch) to its
+# anchoring status, filled in by the background flush loop below.
+# ─────────────────────────────────────────────────────────────────
+_batch_queue = BatchQueue()
+_batch_records: dict = {}
+
+
+@app.on_event("startup")
+async def _start_batch_flush_loop():
+    asyncio.create_task(_batch_flush_loop())
+
+
+async def _batch_flush_loop():
+    while True:
+        await asyncio.sleep(5)
+        try:
+            if _batch_queue.should_flush():
+                result = _batch_queue.flush()
+                if result:
+                    for doc_id in result["document_ids"]:
+                        _batch_records[doc_id] = {
+                            "status": "anchored",
+                            "batch_root": result["batch_root"],
+                            "tx_hash": result["tx_hash"],
+                            "block_number": result["block_number"],
+                            "chain": "Ethereum Sepolia",
+                            "chain_id": CHAIN_ID,
+                            "etherscan_url": result["etherscan_url"],
+                            "flushed_at": result["flushed_at"],
+                            "inclusion_proof": result["proofs"].get(doc_id, []),
+                        }
+        except Exception as e:
+            print(f"[batch_anchor] flush loop error: {e}")
 
 
 def _detect_file_format(filepath: str) -> str:
@@ -245,14 +286,22 @@ async def seal_document(
     document: UploadFile = File(...),
     password: str = Form(...),
     keypass: str = Form(...),
-    test_scenario: str | None = Form(None)
+    test_scenario: str | None = Form(None),
+    batch: bool = Query(False)
 ):
     """
     Seal XML document by parsing it, building a Merkle tree, signing the Merkle root,
     timestamping it, encrypting the XML, and packaging the outputs.
     Returns step-by-step execution metadata.
+
+    When batch=true, the blockchain-anchoring step is deferred: the
+    document's Merkle root is queued in a shared BatchQueue instead of
+    anchored immediately, and the response carries batch_status="queued"
+    plus a batch_id to poll via GET /api/batch/status/{batch_id}. The
+    non-batched path (the default) is unchanged.
     """
     steps = []
+    batch_id = None
     original_filename = None
     file_format = None
 
@@ -415,41 +464,61 @@ async def seal_document(
 
         # ── Step 7: Blockchain anchoring ──
         t7 = time.time()
-        try:
-            temp_root_file = temp_dir / "merkle_root.txt"
-            with open(temp_root_file, "w") as f:
-                f.write(merkle_root)
+        if batch:
+            batch_id = str(uuid.uuid4())
+            _batch_queue.add(merkle_root, batch_id)
+            _batch_records[batch_id] = {
+                "status": "queued",
+                "merkle_root": merkle_root,
+                "queued_at": datetime.utcnow().isoformat(),
+            }
+            t7e = time.time()
 
-            ots_temp_path = stamp_file(str(temp_root_file))
             ots_path = temp_dir / f"{original_filename}.ots"
-            shutil.copy(ots_temp_path, ots_path)
-            t7e = time.time()
+            with open(ots_path, "w") as f:
+                json.dump({"status": "queued", "batch_id": batch_id,
+                           "chain": "Ethereum Sepolia", "chain_id": CHAIN_ID}, f, indent=2)
 
-            # Read OTS JSON for blockchain details
-            ots_data = {}
+            steps.append(_make_step("blockchain_anchor", "Anchoring to Blockchain", "queued", t7, t7e,
+                f"Merkle root queued for batch anchoring (batch_id={batch_id}); "
+                f"poll GET /api/batch/status/{batch_id} for confirmation.",
+                {"network": "Ethereum Sepolia", "batch_id": batch_id, "status": "queued"}))
+        else:
             try:
-                with open(ots_temp_path, "r") as f:
-                    ots_data = json.load(f)
-            except Exception:
-                pass
+                temp_root_file = temp_dir / "merkle_root.txt"
+                with open(temp_root_file, "w") as f:
+                    f.write(merkle_root)
 
-            steps.append(_make_step("blockchain_anchor", "Anchoring to Blockchain", "completed", t7, t7e,
-                "Merkle root recorded on Ethereum Sepolia; transaction confirmed.",
-                {"network": ots_data.get("chain", "Ethereum Sepolia"),
-                 "tx_hash": ots_data.get("tx_hash", "N/A"),
-                 "block_number": ots_data.get("block_number", "N/A"),
-                 "gas_used": ots_data.get("gas_used", "48,210"),
-                 "confirmation_time_ms": round((t7e - t7) * 1000, 2),
-                 "status": ots_data.get("status", "N/A"),
-                 "explorer_url": ots_data.get("etherscan_url", "N/A"),
-                 "chain_id": str(ots_data.get("chain_id", "11155111"))}))
-        except Exception as e:
-            t7e = time.time()
-            steps.append(_make_step("blockchain_anchor", "Anchoring to Blockchain", "failed", t7, t7e,
-                "Blockchain timestamping failed.",
-                error={"message": str(e), "suggestion": "Check blockchain node connectivity and wallet configuration."}))
-            _add_remaining_skipped(steps, SEAL_STEP_DEFS, 7)
-            return JSONResponse(content={"overall": "FAIL", "steps": steps})
+                ots_temp_path = stamp_file(str(temp_root_file))
+                ots_path = temp_dir / f"{original_filename}.ots"
+                shutil.copy(ots_temp_path, ots_path)
+                t7e = time.time()
+
+                # Read OTS JSON for blockchain details
+                ots_data = {}
+                try:
+                    with open(ots_temp_path, "r") as f:
+                        ots_data = json.load(f)
+                except Exception:
+                    pass
+
+                steps.append(_make_step("blockchain_anchor", "Anchoring to Blockchain", "completed", t7, t7e,
+                    "Merkle root recorded on Ethereum Sepolia; transaction confirmed.",
+                    {"network": ots_data.get("chain", "Ethereum Sepolia"),
+                     "tx_hash": ots_data.get("tx_hash", "N/A"),
+                     "block_number": ots_data.get("block_number", "N/A"),
+                     "gas_used": ots_data.get("gas_used", "48,210"),
+                     "confirmation_time_ms": round((t7e - t7) * 1000, 2),
+                     "status": ots_data.get("status", "N/A"),
+                     "explorer_url": ots_data.get("etherscan_url", "N/A"),
+                     "chain_id": str(ots_data.get("chain_id", "11155111"))}))
+            except Exception as e:
+                t7e = time.time()
+                steps.append(_make_step("blockchain_anchor", "Anchoring to Blockchain", "failed", t7, t7e,
+                    "Blockchain timestamping failed.",
+                    error={"message": str(e), "suggestion": "Check blockchain node connectivity and wallet configuration."}))
+                _add_remaining_skipped(steps, SEAL_STEP_DEFS, 7)
+                return JSONResponse(content={"overall": "FAIL", "steps": steps})
 
         # ── Step 8: Packaging ──
         t8 = time.time()
@@ -500,9 +569,15 @@ async def seal_document(
         # ── Step 9: Complete ──
         t9 = time.time()
         total_duration_ms = sum(s["duration_ms"] for s in steps)
+        complete_summary = ("Your certificate is sealed and queued for batch anchoring."
+                             if batch else
+                             "Your certificate is cryptographically sealed and tamper-evident.")
+        overall_status_detail = ("PASS — Document sealed; blockchain anchor pending (batch)"
+                                  if batch else
+                                  "PASS — Document successfully sealed and anchored")
         steps.append(_make_step("complete", "Sealed — Ready to Download", "completed", t9, t9 + 0.001,
-            "Your certificate is cryptographically sealed and tamper-evident.",
-            {"overall_status": "PASS — Document successfully sealed and anchored",
+            complete_summary,
+            {"overall_status": overall_status_detail,
              "total_steps": len(SEAL_STEP_DEFS),
              "completed_steps": len(SEAL_STEP_DEFS),
              "total_duration_ms": total_duration_ms}))
@@ -517,6 +592,8 @@ async def seal_document(
             "field_count": len(merkle_result["fields"]),
             "zip_filename": zip_filename,
             "zip_data": zip_data_base64,
+            "batch_status": "queued" if batch else None,
+            "batch_id": batch_id,
             "steps": steps
         }
 
@@ -562,6 +639,8 @@ async def verify_document(
     timestamp_info = {"status": "failed", "detail": "Not checked."}
     decrypted_data_base64 = None
     overall = "FAIL"
+    is_revoked_flag = False
+    revocation_entry = None
 
     try:
         # ── Step 1: ZIP received ──
@@ -830,8 +909,16 @@ async def verify_document(
                 "fields": fields_report, "timestamp": timestamp_info,
                 "original_filename": original_filename})
 
+        # ── Revocation check ──
+        # A revoked certificate must never verify as PASS regardless of
+        # cryptographic validity — revocation is a business-level
+        # invalidation, not a tampering signal, so it's reported separately
+        # from the field/signature checks above.
+        revocation_entry = revocation.is_revoked(stored_root)
+        is_revoked_flag = revocation_entry is not None
+
         # ── Step 10: Complete ──
-        overall = "PASS" if (signature_valid and root_matches and tampered_count == 0) else "FAIL"
+        overall = "PASS" if (signature_valid and root_matches and tampered_count == 0 and not is_revoked_flag) else "FAIL"
         t10 = time.time()
         total_duration_ms = sum(s["duration_ms"] for s in steps)
 
@@ -845,6 +932,8 @@ async def verify_document(
                 issues.append("Merkle root mismatch")
             if tampered_count > 0:
                 issues.append(f"{tampered_count} field(s) tampered")
+            if is_revoked_flag:
+                issues.append("certificate revoked")
             complete_summary = f"Verification completed with issues: {', '.join(issues)}."
 
         steps.append(_make_step("complete", "Verification Complete", "completed", t10, t10 + 0.001,
@@ -864,6 +953,8 @@ async def verify_document(
             "overall": overall,
             "signature_valid": signature_valid,
             "root_matches": root_matches,
+            "revoked": is_revoked_flag,
+            "revocation_details": revocation_entry,
             "timestamp": timestamp_info,
             "fields": fields_report,
             "decrypted_data": decrypted_data_base64,
@@ -884,6 +975,60 @@ async def verify_document(
                     os.remove(filename)
             except Exception:
                 pass
+
+
+# ═══════════════════ REVOCATION ENDPOINTS ═══════════════════
+
+class RevokeRequest(BaseModel):
+    merkle_root: str
+    certificate_number: str
+    reason: str
+    keypass: str
+
+
+@app.post("/api/revoke")
+async def revoke_certificate_endpoint(payload: RevokeRequest):
+    """
+    Revoke a previously sealed certificate by its Merkle root. Requires the
+    Director's private key passphrase — this is what authorizes the action,
+    not just knowledge of the merkle_root/certificate_number (those are
+    public information found inside any sealed package).
+    """
+    if not PRIVATE_KEY.exists():
+        raise HTTPException(status_code=500, detail="Private key not found on server.")
+
+    try:
+        entry = revocation.revoke_certificate(
+            merkle_root=payload.merkle_root,
+            certificate_number=payload.certificate_number,
+            reason=payload.reason,
+            private_key_path=str(PRIVATE_KEY),
+            keypass=payload.keypass,
+        )
+    except Exception:
+        raise HTTPException(status_code=401, detail="Incorrect keypass — revocation not authorized.")
+
+    return entry
+
+
+@app.get("/api/revocations")
+async def get_revocations():
+    return revocation.list_all_revocations()
+
+
+# ═══════════════════ BATCH ANCHOR STATUS ═══════════════════
+
+@app.get("/api/batch/status/{batch_id}")
+async def batch_status(batch_id: str):
+    """
+    Reports whether a document sealed with ?batch=true has been anchored
+    yet. batch_id is the id returned by /api/seal for that specific
+    document — not a shared identifier across the whole flushed batch.
+    """
+    record = _batch_records.get(batch_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Unknown batch_id.")
+    return record
 
 
 # ═══════════════════ PDF PREVIEW ENDPOINT ═══════════════════

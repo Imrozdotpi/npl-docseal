@@ -65,6 +65,27 @@ def verify(zip_bytes: bytes, password: str, test_scenario: str) -> dict:
     return {"status_code": resp.status_code, "json": _safe_json(resp)}
 
 
+def revoke(merkle_root: str, certificate_number: str, reason: str, keypass: str) -> dict:
+    """POST a revocation request to /api/revoke. Returns the parsed JSON body
+    regardless of status (callers decide what counts as pass/fail)."""
+    resp = requests.post(
+        f"{API_URL}/api/revoke",
+        json={
+            "merkle_root": merkle_root,
+            "certificate_number": certificate_number,
+            "reason": reason,
+            "keypass": keypass,
+        },
+        timeout=30,
+    )
+    return {"status_code": resp.status_code, "json": _safe_json(resp)}
+
+
+def list_revocations() -> list:
+    resp = requests.get(f"{API_URL}/api/revocations", timeout=30)
+    return resp.json()
+
+
 def _safe_json(resp) -> dict:
     try:
         return resp.json()

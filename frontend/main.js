@@ -16,6 +16,9 @@ let recoveredData = '';       // Base64
 let sealRunning = false;
 let verifyRunning = false;
 
+let sealAnchorMode = 'immediate'; // 'immediate' | 'batch'
+let batchPollInterval = null;
+
 // ─── SVG icons (inline strings) ───
 const SVG_CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
 const SVG_LOADER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
@@ -258,7 +261,7 @@ function setStepState(containerId, index, state, duration, doneSub) {
     if (!stepEl) return;
 
     // Remove all state classes
-    stepEl.classList.remove('step-waiting', 'step-active', 'step-done', 'step-error', 'step-skipped');
+    stepEl.classList.remove('step-waiting', 'step-active', 'step-done', 'step-error', 'step-skipped', 'step-queued');
     stepEl.classList.add(`step-${state}`);
 
     const iconCircle = stepEl.querySelector('.icon-circle');
@@ -296,6 +299,11 @@ function setStepState(containerId, index, state, duration, doneSub) {
             iconCircle.innerHTML = SVG_SKIP;
             subEl.textContent = doneSub || 'Skipped — previous step failed';
             if (badgeEl) { badgeEl.textContent = 'Skipped'; badgeEl.className = 'avg-badge badge-skipped'; }
+            break;
+        case 'queued':
+            iconCircle.innerHTML = SVG_CLOCK;
+            subEl.textContent = doneSub || 'Queued for batch anchoring…';
+            if (badgeEl) { badgeEl.textContent = 'Queued'; badgeEl.className = 'avg-badge badge-queued'; }
             break;
     }
 }
@@ -348,6 +356,8 @@ async function animatePipelineFromBackend(containerId, backendSteps) {
             setStepState(containerId, i, 'done', durationMs / 1000, step.summary);
         } else if (step.status === 'failed') {
             setStepState(containerId, i, 'error', null, step.summary || 'Failed — see details below');
+        } else if (step.status === 'queued') {
+            setStepState(containerId, i, 'queued', durationMs / 1000, 'Queued for batch anchoring…');
         }
 
         renderStepDetails(containerId, i, step);
@@ -388,6 +398,27 @@ function showFailureBanner(elementId, failedStep) {
         <div class="failure-body">${bodyHtml}</div>
         <div class="failure-footer">No further cryptographic operations were performed.</div>
     `;
+    el.classList.add('visible');
+}
+
+function showRevokedBanner(elementId, details) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    const reason = (details && details.reason) || 'No reason given.';
+    const revokedAt = details && details.revoked_at ? new Date(details.revoked_at).toLocaleString() : 'Unknown';
+    const revokedBy = (details && details.revoked_by) || 'Unknown';
+
+    el.innerHTML = `
+        <div class="failure-header">${SVG_ALERT} ⚠ Certificate Revoked</div>
+        <div class="failure-body">
+            <div class="fb-row"><span class="fb-label">Reason</span><span class="fb-value">${reason}</span></div>
+            <div class="fb-row"><span class="fb-label">Revoked At</span><span class="fb-value">${revokedAt}</span></div>
+            <div class="fb-row"><span class="fb-label">Revoked By</span><span class="fb-value">${revokedBy}</span></div>
+        </div>
+        <div class="failure-footer">This certificate is cryptographically valid but has since been invalidated by a business decision — not a tampering signal.</div>
+    `;
+    el.classList.add('revoked');
     el.classList.add('visible');
 }
 
@@ -556,6 +587,14 @@ function resetSealPipeline() {
     document.getElementById('seal-failure-banner').innerHTML = '';
     document.getElementById('seal-download-wrap').classList.remove('visible');
     document.getElementById('seal-api-error').classList.remove('visible');
+    stopBatchStatusPolling();
+    document.getElementById('seal-batch-status').classList.remove('visible', 'anchored');
+    document.getElementById('seal-revoke-trigger-row').style.display = 'none';
+    document.getElementById('revoke-reason').value = '';
+    document.getElementById('revoke-keypass').value = '';
+    closeModal('revoke-modal');
+    window._lastSealRoot = null;
+    window._lastSealCertNumber = null;
     const btn = document.getElementById('btn-seal');
     btn.disabled = false;
     document.getElementById('btn-seal-text').textContent = 'Seal Document';
@@ -572,6 +611,7 @@ function resetVerifyPipeline() {
     document.getElementById('verify-error-card').classList.remove('visible');
     document.getElementById('verify-error-card').innerHTML = '';
     document.getElementById('verify-failure-banner').classList.remove('visible');
+    document.getElementById('verify-failure-banner').classList.remove('revoked');
     document.getElementById('verify-failure-banner').innerHTML = '';
     document.getElementById('verify-download-wrap').classList.remove('visible');
     document.getElementById('verify-api-error').classList.remove('visible');
@@ -614,6 +654,8 @@ async function sealDocument() {
     document.getElementById('seal-error-card').classList.remove('visible');
     document.getElementById('seal-failure-banner').classList.remove('visible');
     document.getElementById('seal-download-wrap').classList.remove('visible');
+    stopBatchStatusPolling();
+    document.getElementById('seal-batch-status').classList.remove('visible', 'anchored');
 
     // Immediately start step 0 active ticker while waiting for server response
     setStepState('seal-pipeline', 0, 'active');
@@ -626,7 +668,8 @@ async function sealDocument() {
     formData.append('keypass', keypass);
 
     try {
-        const res = await fetch('/api/seal', { method: 'POST', body: formData });
+        const sealUrl = sealAnchorMode === 'batch' ? '/api/seal?batch=true' : '/api/seal';
+        const res = await fetch(sealUrl, { method: 'POST', body: formData });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.detail || `Server error ${res.status}`);
@@ -651,6 +694,10 @@ async function sealDocument() {
             // Show summary
             showSealSummary(fieldCount, totalTime, apiResult);
 
+            if (apiResult.batch_status === 'queued' && apiResult.batch_id) {
+                startBatchStatusPolling(apiResult.batch_id);
+            }
+
             // Show download button
             const dlWrap = document.getElementById('seal-download-wrap');
             dlWrap.classList.add('visible');
@@ -661,6 +708,16 @@ async function sealDocument() {
 
             // Add to audit log
             addAuditRecord(sealFile.name, apiResult.hash || 'unknown', 'SEALED', 'success');
+
+            // Store the Merkle root client-side so "Revoke this certificate"
+            // can reference it without re-uploading or re-parsing anything.
+            if (apiResult.hash) {
+                window._lastSealRoot = apiResult.hash;
+                const xmlStep = (apiResult.steps || []).find(s => s.step === 'xml_parsing');
+                window._lastSealCertNumber = (xmlStep && xmlStep.details && xmlStep.details.certificate_id) || 'N/A';
+                document.getElementById('revoke-modal-root').textContent = apiResult.hash.slice(0, 16) + '…';
+                document.getElementById('seal-revoke-trigger-row').style.display = 'flex';
+            }
 
             // Change button to Reset
             btn.disabled = false;
@@ -718,9 +775,12 @@ async function sealDocument() {
 
 function showSealSummary(fieldCount, totalTime, apiResult) {
     const el = document.getElementById('seal-summary');
-    const hashRow = apiResult && apiResult.hash 
+    const hashRow = apiResult && apiResult.hash
         ? `<div class="stat-row"><span class="stat-label">Document Root</span><span class="stat-value">${formatCryptoChip(apiResult.hash, 'Merkle Root')}</span></div>`
         : '';
+    const blockchainValue = apiResult && apiResult.batch_status === 'queued'
+        ? 'Ethereum Sepolia (batch — pending)'
+        : 'Ethereum Sepolia';
     el.innerHTML = `
         <div class="summary-header">${SVG_CHECK_SM} Sealing Complete</div>
         <div class="summary-body">
@@ -728,12 +788,102 @@ function showSealSummary(fieldCount, totalTime, apiResult) {
             <div class="stat-row"><span class="stat-label">Hashes computed</span><span class="stat-value">${fieldCount} (SHA-256)</span></div>
             <div class="stat-row"><span class="stat-label">Signature</span><span class="stat-value">RSA-4096</span></div>
             <div class="stat-row"><span class="stat-label">Encryption</span><span class="stat-value">AES-256-GCM</span></div>
-            <div class="stat-row"><span class="stat-label">Blockchain</span><span class="stat-value">Ethereum Sepolia</span></div>
+            <div class="stat-row"><span class="stat-label">Blockchain</span><span class="stat-value" id="seal-summary-blockchain-value">${blockchainValue}</span></div>
             ${hashRow}
             <div class="stat-row"><span class="stat-label">Total time</span><span class="stat-value green">${totalTime.toFixed(1)}s</span></div>
         </div>
     `;
     el.classList.add('visible');
+}
+
+// ═══════════════════ BATCH ANCHORING (Seal tab toggle) ═══════════════════
+
+function setAnchorMode(mode) {
+    sealAnchorMode = mode;
+    document.getElementById('anchor-mode-immediate').classList.toggle('active', mode === 'immediate');
+    document.getElementById('anchor-mode-batch').classList.toggle('active', mode === 'batch');
+}
+
+function startBatchStatusPolling(batchId) {
+    stopBatchStatusPolling();
+    const note = document.getElementById('seal-batch-status');
+    note.textContent = 'Waiting for batch anchor… (checking every 3s)';
+    note.classList.add('visible');
+    note.classList.remove('anchored');
+
+    batchPollInterval = setInterval(async () => {
+        try {
+            const res = await fetch(`/api/batch/status/${batchId}`);
+            if (!res.ok) return;
+            const status = await res.json();
+            if (status.status === 'anchored') {
+                stopBatchStatusPolling();
+                note.textContent = `Anchored — tx ${status.tx_hash.slice(0, 16)}…`;
+                note.classList.add('anchored');
+
+                // The blockchain_anchor step is a fixed position in SEAL_STEPS
+                // (index 6) — reflect the now-confirmed anchor there too.
+                setStepState('seal-pipeline', 6, 'done', null, `Anchored in batch — tx ${status.tx_hash.slice(0, 16)}…`);
+
+                const blockchainValueEl = document.getElementById('seal-summary-blockchain-value');
+                if (blockchainValueEl) blockchainValueEl.textContent = 'Ethereum Sepolia (batch confirmed)';
+            }
+        } catch (err) {
+            // Network hiccup — silently retry on the next tick.
+        }
+    }, 3000);
+}
+
+function stopBatchStatusPolling() {
+    if (batchPollInterval) {
+        clearInterval(batchPollInterval);
+        batchPollInterval = null;
+    }
+}
+
+// ═══════════════════ REVOCATION ═══════════════════
+
+async function confirmRevocation() {
+    const reason = document.getElementById('revoke-reason').value.trim();
+    const keypass = document.getElementById('revoke-keypass').value;
+    hideApiError('revoke-api-error');
+
+    if (!window._lastSealRoot) { showApiError('revoke-api-error', 'No sealed certificate to revoke.'); return; }
+    if (!reason) { showApiError('revoke-api-error', 'Please enter a reason for revocation.'); return; }
+    if (!keypass) { showApiError('revoke-api-error', "Please enter the Director's key passphrase."); return; }
+
+    const btn = document.getElementById('btn-confirm-revoke');
+    btn.disabled = true;
+    btn.textContent = 'Revoking…';
+
+    try {
+        const res = await fetch('/api/revoke', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                merkle_root: window._lastSealRoot,
+                certificate_number: window._lastSealCertNumber || 'N/A',
+                reason,
+                keypass
+            })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Server error ${res.status}`);
+        }
+        const entry = await res.json();
+
+        closeModal('revoke-modal');
+        const triggerRow = document.getElementById('seal-revoke-trigger-row');
+        triggerRow.innerHTML = `<div class="api-error-banner visible" style="border-left-color: var(--accent-amber); color: var(--accent-amber);">
+            Certificate revoked ${new Date(entry.revoked_at).toLocaleString()} — "${entry.reason}"
+        </div>`;
+    } catch (err) {
+        showApiError('revoke-api-error', err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Revoke Certificate';
+    }
 }
 
 // ═══════════════════ VERIFY DOCUMENT ═══════════════════
@@ -756,6 +906,7 @@ async function verifyDocument() {
     document.getElementById('verify-summary').classList.remove('visible');
     document.getElementById('verify-error-card').classList.remove('visible');
     document.getElementById('verify-failure-banner').classList.remove('visible');
+    document.getElementById('verify-failure-banner').classList.remove('revoked');
     document.getElementById('verify-download-wrap').classList.remove('visible');
     document.getElementById('btn-field-report').style.display = 'none';
     closeModal('field-report-modal');
@@ -786,8 +937,12 @@ async function verifyDocument() {
             // Find the failed step
             const failedStep = (apiResult.steps || []).find(s => s.status === 'failed');
 
-
-            if (failedStep) {
+            if (apiResult.revoked) {
+                // Revocation is a business-level invalidation, not a
+                // cryptographic failure — the pipeline itself completed
+                // cleanly, so there's no failedStep to point at.
+                showRevokedBanner('verify-failure-banner', apiResult.revocation_details);
+            } else if (failedStep) {
                 showFailureBanner('verify-failure-banner', failedStep);
             }
 

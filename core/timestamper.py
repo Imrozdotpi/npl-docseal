@@ -60,31 +60,21 @@ def _get_web3() -> Web3:
 
 # ── stamp ──────────────────────────────────────────────────────
 
-def stamp_file(filepath: str) -> str:
+def stamp_hash(hash_hex: str) -> dict:
     """
-    Anchor a file's SHA-256 hash to Ethereum Sepolia blockchain.
+    Anchor an arbitrary SHA-256 hex hash to Ethereum Sepolia blockchain.
 
-    Embeds the hash as transaction data and waits for confirmation.
-    Saves a .ots JSON proof file alongside the original.
+    Same transaction-sending logic stamp_file() uses, factored out so
+    batch anchoring (core/batch_anchor.py) can anchor a batch root
+    directly without needing a file on disk to hash first.
 
-    Returns:
-        Path to the generated .ots proof file.
+    Returns the proof dict directly — unlike stamp_file(), this does not
+    write anything to disk; callers decide whether and where to persist it.
     """
     if not PRIVATE_KEY or not WALLET:
         raise TimestampError(
             "SEPOLIA_PRIVATE_KEY and SEPOLIA_WALLET must be set."
         )
-
-    file_path = Path(filepath).resolve()
-    if not file_path.exists():
-        raise FileNotFoundError(filepath)
-
-    # compute SHA-256 of file
-    sha256 = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            sha256.update(chunk)
-    file_hash = sha256.hexdigest()
 
     w3 = _get_web3()
 
@@ -92,7 +82,7 @@ def stamp_file(filepath: str) -> str:
     nonce = w3.eth.get_transaction_count(checksum_wallet, "pending")
 
     # embed hash as transaction data
-    data_hex = "0x" + file_hash
+    data_hex = "0x" + hash_hex
 
     tx = {
         "nonce":    nonce,
@@ -124,10 +114,8 @@ def stamp_file(filepath: str) -> str:
         status       = "pending"
         print(f"  Still pending — check Etherscan for confirmation.")
 
-    # write proof file
-    proof = {
-        "file":          file_path.name,
-        "file_hash":     file_hash,
+    return {
+        "hash":          hash_hex,
         "tx_hash":       tx_hex,
         "block_number":  block_number,
         "chain":         "Ethereum Sepolia",
@@ -135,6 +123,43 @@ def stamp_file(filepath: str) -> str:
         "status":        status,
         "etherscan_url": f"https://sepolia.etherscan.io/tx/{tx_hex}",
         "wallet":        WALLET,
+    }
+
+
+def stamp_file(filepath: str) -> str:
+    """
+    Anchor a file's SHA-256 hash to Ethereum Sepolia blockchain.
+
+    Embeds the hash as transaction data and waits for confirmation.
+    Saves a .ots JSON proof file alongside the original.
+
+    Returns:
+        Path to the generated .ots proof file.
+    """
+    file_path = Path(filepath).resolve()
+    if not file_path.exists():
+        raise FileNotFoundError(filepath)
+
+    # compute SHA-256 of file
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            sha256.update(chunk)
+    file_hash = sha256.hexdigest()
+
+    result = stamp_hash(file_hash)
+
+    # write proof file — same shape as before the stamp_hash() refactor
+    proof = {
+        "file":          file_path.name,
+        "file_hash":     result["hash"],
+        "tx_hash":       result["tx_hash"],
+        "block_number":  result["block_number"],
+        "chain":         result["chain"],
+        "chain_id":      result["chain_id"],
+        "status":        result["status"],
+        "etherscan_url": result["etherscan_url"],
+        "wallet":        result["wallet"],
     }
 
     ots_path = str(file_path) + ".ots"

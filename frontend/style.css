@@ -28,7 +28,8 @@
     --accent-green: #3D6B4F;
     --accent-green-dark: #2F5640;
     --accent-red: #A34438;
-    --accent-amber: #6B6862;
+    --accent-amber: #B8791A;
+    --accent-amber-light: rgba(184, 121, 26, 0.08);
 
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --font-display: 'IBM Plex Serif', Georgia, 'Times New Roman', serif;
@@ -352,6 +353,65 @@ body {
 
 .form-group input::placeholder {
     color: var(--text-muted);
+}
+
+/* ───────── Blockchain anchoring mode toggle ───────── */
+.anchor-toggle {
+    display: flex;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.anchor-toggle-btn {
+    flex: 1;
+    padding: 9px 10px;
+    background: var(--bg-primary);
+    border: none;
+    border-left: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.anchor-toggle-btn:first-child { border-left: none; }
+
+.anchor-toggle-btn.active {
+    background: var(--accent-indigo);
+    color: var(--bg-primary);
+}
+
+.anchor-toggle-btn:hover:not(.active) {
+    background: var(--bg-sunken);
+}
+
+.anchor-toggle-sub {
+    font-weight: 500;
+    opacity: 0.75;
+}
+
+.batch-status-note {
+    display: none;
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: var(--accent-amber-light);
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--accent-amber);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--accent-amber);
+    font-weight: 500;
+}
+
+.batch-status-note.visible { display: block; animation: fadeIn 0.2s ease; }
+
+.batch-status-note.anchored {
+    color: var(--accent-green);
+    border-left-color: var(--accent-green);
+    background: transparent;
 }
 
 /* ───────── Buttons ───────── */
@@ -782,6 +842,18 @@ body {
 .pipeline-step.step-error .step-title { color: var(--accent-red); }
 .pipeline-step.step-error .step-sub { color: var(--accent-red); }
 
+/* State: queued — batch anchoring, awaiting the next scheduled flush.
+   Amber, not indigo/green/red: it isn't running, done, or failed, it's
+   parked pending a background process outside this request. */
+.pipeline-step.step-queued .icon-circle {
+    border-color: var(--accent-amber);
+    background: var(--bg-primary);
+}
+
+.pipeline-step.step-queued .icon-circle svg { color: var(--accent-amber); }
+.pipeline-step.step-queued .step-title { color: var(--text-primary); }
+.pipeline-step.step-queued .step-sub { color: var(--accent-amber); font-weight: 500; }
+
 /* Step content */
 .pipeline-step .step-content {
     flex: 1;
@@ -842,6 +914,13 @@ body {
     color: var(--accent-red);
     font-weight: 700;
     border-color: var(--accent-red);
+}
+
+.pipeline-step .avg-badge.badge-queued {
+    background: var(--accent-amber-light);
+    color: var(--accent-amber);
+    font-weight: 700;
+    border-color: var(--border-color);
 }
 
 .pipeline-step .avg-badge.badge-skipped {
@@ -1352,6 +1431,16 @@ body {
     font-style: italic;
 }
 
+/* Revoked — a distinct amber state, not the same red as tampering: a
+   revoked certificate is business-invalidated, not cryptographically
+   broken, so it must read differently at a glance. */
+.failure-banner.revoked {
+    border-left-color: var(--accent-amber);
+}
+.failure-banner.revoked .failure-header {
+    color: var(--accent-amber);
+}
+
 /* ==================================================================
    Audit Dashboard (Tab 3) — sub-nav, panels, cards, coverage matrix
    ================================================================== */
@@ -1607,6 +1696,16 @@ body {
 
 .modal-overlay.visible .modal-panel {
     transform: translateY(0) scale(1);
+}
+
+/* Smaller, content-height variant — for short forms like the revoke modal,
+   as opposed to the fixed-size document-preview modals. */
+.modal-panel-compact {
+    width: min(440px, 92vw);
+    height: auto;
+}
+.modal-panel-compact .modal-body {
+    display: block;
 }
 
 .modal-header {
