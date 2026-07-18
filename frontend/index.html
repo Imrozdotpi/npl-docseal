@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=30">
+    <link rel="stylesheet" href="style.css?v=31">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -179,38 +179,6 @@
                                 </button>
                                 <div class="download-sub" id="seal-download-sub">Sealed archive ready</div>
                             </div>
-
-                            <div id="seal-revoke-trigger-row" class="revoke-trigger-row" style="display: none;">
-                                <button id="btn-revoke-seal" class="btn btn-danger btn-sm" onclick="openModal('revoke-modal')">
-                                    Revoke this Certificate
-                                </button>
-                            </div>
-
-                            <div id="revoke-modal" class="modal-overlay" onclick="if (event.target === this) closeModal('revoke-modal')">
-                                <div class="modal-panel modal-panel-compact">
-                                    <div class="modal-header">
-                                        <h3>Revoke Certificate</h3>
-                                        <button type="button" class="modal-close" onclick="closeModal('revoke-modal')" aria-label="Close">×</button>
-                                    </div>
-                                    <div class="modal-body modal-body-scroll">
-                                        <p class="page-desc" style="margin-bottom: 14px;">
-                                            This marks Merkle root <span id="revoke-modal-root" class="stat-value"></span> as revoked.
-                                            Future verifications of this document will report <strong>REVOKED</strong>, not PASS, 
-                                            regardless of signature or field validity.
-                                        </p>
-                                        <div class="form-group">
-                                            <label for="revoke-reason">Reason</label>
-                                            <input type="text" id="revoke-reason" placeholder="e.g. Calibration reading error discovered post-issuance">
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="revoke-keypass">Director's Key Passphrase</label>
-                                            <input type="password" id="revoke-keypass" placeholder="Authorizes this revocation">
-                                        </div>
-                                        <div id="revoke-api-error" class="api-error-banner"></div>
-                                        <button id="btn-confirm-revoke" class="btn btn-danger" onclick="confirmRevocation()">Revoke Certificate</button>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </section>
@@ -261,6 +229,40 @@
                             <div id="verify-summary" class="pipeline-summary"></div>
                             <div id="verify-error-card" class="pipeline-error"></div>
                             <div id="verify-failure-banner" class="failure-banner"></div>
+
+                            <!-- Only shown when decryption succeeds but the field
+                                 integrity check finds at least one TAMPERED field -->
+                            <div id="verify-revoke-trigger-row" class="revoke-trigger-row" style="display: none;">
+                                <button id="btn-revoke-verify" class="btn btn-danger btn-sm" onclick="openModal('revoke-modal')">
+                                    Revoke this Certificate
+                                </button>
+                            </div>
+
+                            <div id="revoke-modal" class="modal-overlay" onclick="if (event.target === this) closeModal('revoke-modal')">
+                                <div class="modal-panel modal-panel-compact">
+                                    <div class="modal-header">
+                                        <h3>Revoke Certificate</h3>
+                                        <button type="button" class="modal-close" onclick="closeModal('revoke-modal')" aria-label="Close">×</button>
+                                    </div>
+                                    <div class="modal-body modal-body-scroll">
+                                        <p class="page-desc" style="margin-bottom: 14px;">
+                                            This marks Merkle root <span id="revoke-modal-root" class="stat-value"></span> as revoked.
+                                            Future verifications of this document will report <strong>REVOKED</strong>, not PASS,
+                                            regardless of signature or field validity.
+                                        </p>
+                                        <div class="form-group">
+                                            <label for="revoke-reason">Reason</label>
+                                            <input type="text" id="revoke-reason" placeholder="e.g. Calibration reading error discovered post-issuance">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="revoke-keypass">Director's Key Passphrase</label>
+                                            <input type="password" id="revoke-keypass" placeholder="Authorizes this revocation">
+                                        </div>
+                                        <div id="revoke-api-error" class="api-error-banner"></div>
+                                        <button id="btn-confirm-revoke" class="btn btn-danger" onclick="confirmRevocation()">Revoke Certificate</button>
+                                    </div>
+                                </div>
+                            </div>
 
                             <!-- Field report + certificate preview triggers -->
                             <div class="modal-trigger-row">
@@ -320,6 +322,7 @@
                         <button class="audit-subtab" data-panel="validation" onclick="switchAuditPanel('validation')">Validation &amp; Tamper Stats</button>
                         <button class="audit-subtab" data-panel="coverage" onclick="switchAuditPanel('coverage')">Test Coverage Matrix</button>
                         <button class="audit-subtab" data-panel="blockchain" onclick="switchAuditPanel('blockchain')">Blockchain Anchor Log</button>
+                        <button class="audit-subtab" data-panel="revocations" onclick="switchAuditPanel('revocations')">Revocations</button>
                         <button class="btn btn-danger btn-sm audit-clear-btn" onclick="clearAudit()">Clear Log</button>
                     </div>
 
@@ -376,13 +379,48 @@
                             </div>
                         </div>
                     </div>
+
+                    <div id="audit-panel-revocations" class="audit-panel">
+                        <div class="card audit-card">
+                            <h3>Revoke a Certificate</h3>
+                            <p class="page-desc" style="margin-bottom: 1rem;">
+                                Look up any previously sealed certificate by its Merkle root and revoke it,
+                                independent of the current Seal/Verify session, for cases discovered after the fact
+                                (a bad calibration, a compromised key, a failed audit).
+                            </p>
+                            <div class="form-group">
+                                <label for="manual-revoke-root">Merkle Root</label>
+                                <input type="text" id="manual-revoke-root" placeholder="64-character hex root, e.g. from merkle_proof.json inside the sealed ZIP">
+                            </div>
+                            <div class="form-group">
+                                <label for="manual-revoke-cert-number">Certificate Number</label>
+                                <input type="text" id="manual-revoke-cert-number" placeholder="e.g. N25040063/D2.02/C-029">
+                            </div>
+                            <div class="form-group">
+                                <label for="manual-revoke-reason">Reason</label>
+                                <input type="text" id="manual-revoke-reason" placeholder="e.g. Calibration reading error discovered post-issuance">
+                            </div>
+                            <div class="form-group">
+                                <label for="manual-revoke-keypass">Director's Key Passphrase</label>
+                                <input type="password" id="manual-revoke-keypass" placeholder="Authorizes this revocation">
+                            </div>
+                            <div id="manual-revoke-api-error" class="api-error-banner"></div>
+                            <button id="btn-manual-revoke" class="btn btn-danger" style="width: auto;" onclick="submitManualRevoke()">Revoke Certificate</button>
+                        </div>
+                        <div class="card audit-card">
+                            <h3>Revocation Log</h3>
+                            <div class="table-container">
+                                <table class="audit-table" id="revocation-log-table"></table>
+                            </div>
+                        </div>
+                    </div>
                 </section>
 
             </div>
         </main>
     </div>
 
-    <script src="main.js?v=21"></script>
-    <script src="audit.js?v=19"></script>
+    <script src="main.js?v=23"></script>
+    <script src="audit.js?v=20"></script>
 </body>
 </html>

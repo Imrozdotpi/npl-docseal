@@ -50,6 +50,7 @@ function renderActiveAuditPanel() {
     else if (panelName === 'validation') renderValidationPanel();
     else if (panelName === 'coverage') renderCoveragePanel();
     else if (panelName === 'blockchain') renderBlockchainPanel();
+    else if (panelName === 'revocations') renderRevocationsPanel();
 }
 
 // ── Polling ────────────────────────────────────────────────────────
@@ -457,6 +458,86 @@ function renderBlockchainLogTable(anchored) {
         </thead>
         <tbody>${rows || '<tr><td colspan="5" class="text-muted" style="text-align:center;">No blockchain-anchored operations yet.</td></tr>'}</tbody>
     `;
+}
+
+// ── Revocations panel ──────────────────────────────────────────────
+
+async function renderRevocationsPanel() {
+    try {
+        const revocations = await fetchJSON('/api/revocations');
+        renderRevocationLogTable(revocations);
+    } catch (e) {
+        console.error('[audit] revocations fetch failed', e);
+    }
+}
+
+function renderRevocationLogTable(revocations) {
+    const table = document.getElementById('revocation-log-table');
+    if (!table) return;
+
+    const chronological = [...revocations].reverse(); // newest first
+    const rows = chronological.map(entry => {
+        const shortRoot = entry.merkle_root ? `${entry.merkle_root.slice(0, 10)}...${entry.merkle_root.slice(-6)}` : '—';
+        return `
+        <tr>
+            <td class="text-monospace">${formatTimestamp(entry.revoked_at)}</td>
+            <td>${entry.certificate_number || '—'}</td>
+            <td class="text-monospace">${shortRoot}</td>
+            <td>${entry.reason || '—'}</td>
+            <td>${entry.revoked_by || '—'}</td>
+        </tr>`;
+    }).join('');
+
+    table.innerHTML = `
+        <thead>
+            <tr><th>Revoked At</th><th>Certificate</th><th>Merkle Root</th><th>Reason</th><th>Revoked By</th></tr>
+        </thead>
+        <tbody>${rows || '<tr><td colspan="5" class="text-muted" style="text-align:center;">No certificates revoked yet.</td></tr>'}</tbody>
+    `;
+}
+
+async function submitManualRevoke() {
+    const merkleRoot = document.getElementById('manual-revoke-root').value.trim();
+    const certificateNumber = document.getElementById('manual-revoke-cert-number').value.trim();
+    const reason = document.getElementById('manual-revoke-reason').value.trim();
+    const keypass = document.getElementById('manual-revoke-keypass').value;
+    hideApiError('manual-revoke-api-error');
+
+    if (!merkleRoot) { showApiError('manual-revoke-api-error', 'Please enter the Merkle root to revoke.'); return; }
+    if (!reason) { showApiError('manual-revoke-api-error', 'Please enter a reason for revocation.'); return; }
+    if (!keypass) { showApiError('manual-revoke-api-error', "Please enter the Director's key passphrase."); return; }
+
+    const btn = document.getElementById('btn-manual-revoke');
+    btn.disabled = true;
+    btn.textContent = 'Revoking…';
+
+    try {
+        const res = await fetch('/api/revoke', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                merkle_root: merkleRoot,
+                certificate_number: certificateNumber || 'N/A',
+                reason,
+                keypass
+            })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Server error ${res.status}`);
+        }
+
+        document.getElementById('manual-revoke-root').value = '';
+        document.getElementById('manual-revoke-cert-number').value = '';
+        document.getElementById('manual-revoke-reason').value = '';
+        document.getElementById('manual-revoke-keypass').value = '';
+        renderRevocationsPanel();
+    } catch (err) {
+        showApiError('manual-revoke-api-error', err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Revoke Certificate';
+    }
 }
 
 // ── Clear audit log (overrides the legacy localStorage-only handler) ─

@@ -955,6 +955,8 @@ async def verify_document(
             "root_matches": root_matches,
             "revoked": is_revoked_flag,
             "revocation_details": revocation_entry,
+            "stored_root": stored_root,
+            "certificate_number": current_parsed.get("certificate_number", "N/A"),
             "timestamp": timestamp_info,
             "fields": fields_report,
             "decrypted_data": decrypted_data_base64,

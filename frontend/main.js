@@ -589,12 +589,6 @@ function resetSealPipeline() {
     document.getElementById('seal-api-error').classList.remove('visible');
     stopBatchStatusPolling();
     document.getElementById('seal-batch-status').classList.remove('visible', 'anchored');
-    document.getElementById('seal-revoke-trigger-row').style.display = 'none';
-    document.getElementById('revoke-reason').value = '';
-    document.getElementById('revoke-keypass').value = '';
-    closeModal('revoke-modal');
-    window._lastSealRoot = null;
-    window._lastSealCertNumber = null;
     const btn = document.getElementById('btn-seal');
     btn.disabled = false;
     document.getElementById('btn-seal-text').textContent = 'Seal Document';
@@ -619,6 +613,15 @@ function resetVerifyPipeline() {
     closeModal('field-report-modal');
     document.getElementById('btn-preview-verify').style.display = 'none';
     closeModal('verify-preview-card', 'verify-preview-iframe');
+    document.getElementById('verify-revoke-trigger-row').style.display = 'none';
+    const revokeBtn = document.getElementById('btn-revoke-verify');
+    revokeBtn.disabled = false;
+    revokeBtn.textContent = 'Revoke this Certificate';
+    document.getElementById('revoke-reason').value = '';
+    document.getElementById('revoke-keypass').value = '';
+    closeModal('revoke-modal');
+    window._revokeCandidateRoot = null;
+    window._revokeCandidateCertNumber = null;
     const btn = document.getElementById('btn-verify');
     btn.disabled = false;
     document.getElementById('btn-verify-text').textContent = 'Verify & Recover';
@@ -708,16 +711,6 @@ async function sealDocument() {
 
             // Add to audit log
             addAuditRecord(sealFile.name, apiResult.hash || 'unknown', 'SEALED', 'success');
-
-            // Store the Merkle root client-side so "Revoke this certificate"
-            // can reference it without re-uploading or re-parsing anything.
-            if (apiResult.hash) {
-                window._lastSealRoot = apiResult.hash;
-                const xmlStep = (apiResult.steps || []).find(s => s.step === 'xml_parsing');
-                window._lastSealCertNumber = (xmlStep && xmlStep.details && xmlStep.details.certificate_id) || 'N/A';
-                document.getElementById('revoke-modal-root').textContent = apiResult.hash.slice(0, 16) + '…';
-                document.getElementById('seal-revoke-trigger-row').style.display = 'flex';
-            }
 
             // Change button to Reset
             btn.disabled = false;
@@ -851,7 +844,7 @@ async function confirmRevocation() {
     const keypass = document.getElementById('revoke-keypass').value;
     hideApiError('revoke-api-error');
 
-    if (!window._lastSealRoot) { showApiError('revoke-api-error', 'No sealed certificate to revoke.'); return; }
+    if (!window._revokeCandidateRoot) { showApiError('revoke-api-error', 'No certificate selected to revoke.'); return; }
     if (!reason) { showApiError('revoke-api-error', 'Please enter a reason for revocation.'); return; }
     if (!keypass) { showApiError('revoke-api-error', "Please enter the Director's key passphrase."); return; }
 
@@ -864,8 +857,8 @@ async function confirmRevocation() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                merkle_root: window._lastSealRoot,
-                certificate_number: window._lastSealCertNumber || 'N/A',
+                merkle_root: window._revokeCandidateRoot,
+                certificate_number: window._revokeCandidateCertNumber || 'N/A',
                 reason,
                 keypass
             })
@@ -877,10 +870,12 @@ async function confirmRevocation() {
         const entry = await res.json();
 
         closeModal('revoke-modal');
-        const triggerRow = document.getElementById('seal-revoke-trigger-row');
-        triggerRow.innerHTML = `<div class="api-error-banner visible" style="border-left-color: var(--accent-amber); color: var(--accent-amber);">
-            Certificate revoked ${new Date(entry.revoked_at).toLocaleString()}: "${entry.reason}"
-        </div>`;
+        // Disable and relabel the button in place rather than replacing the
+        // row's HTML, so it's still a real button (not destroyed) the next
+        // time this row needs to show up for a different verify result.
+        const revokeBtn = document.getElementById('btn-revoke-verify');
+        revokeBtn.disabled = true;
+        revokeBtn.textContent = `Revoked ${new Date(entry.revoked_at).toLocaleDateString()}`;
     } catch (err) {
         showApiError('revoke-api-error', err.message);
     } finally {
@@ -913,6 +908,9 @@ async function verifyDocument() {
     document.getElementById('verify-download-wrap').classList.remove('visible');
     document.getElementById('btn-field-report').style.display = 'none';
     closeModal('field-report-modal');
+    document.getElementById('verify-revoke-trigger-row').style.display = 'none';
+    document.getElementById('btn-revoke-verify').disabled = false;
+    document.getElementById('btn-revoke-verify').textContent = 'Revoke this Certificate';
 
     // Immediately start step 0 active ticker while waiting for server response
     setStepState('verify-pipeline', 0, 'active');
@@ -951,6 +949,18 @@ async function verifyDocument() {
 
             // Show field report if available
             renderFieldReport(apiResult.fields);
+
+            // Offer revocation only once decryption succeeded AND the field
+            // integrity check actually found tampering, not for any other
+            // failure reason (wrong password, corrupted signature, etc.),
+            // and not for an already-revoked certificate.
+            const hasTamperedField = Object.values(apiResult.fields || {}).some(f => f.status === 'TAMPERED');
+            if (hasTamperedField && apiResult.stored_root && !apiResult.revoked) {
+                window._revokeCandidateRoot = apiResult.stored_root;
+                window._revokeCandidateCertNumber = apiResult.certificate_number || 'N/A';
+                document.getElementById('revoke-modal-root').textContent = apiResult.stored_root.slice(0, 16) + '…';
+                document.getElementById('verify-revoke-trigger-row').style.display = 'flex';
+            }
 
             addAuditRecord(verifyZipFile.name, apiResult.root_matches ? 'Root verified' : 'Root mismatch', 'TAMPERED', 'danger');
 
