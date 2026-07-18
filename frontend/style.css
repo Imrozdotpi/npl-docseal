@@ -64,6 +64,13 @@ body {
     from { opacity: 0; transform: translateY(4px); }
     to   { opacity: 1; transform: translateY(0); }
 }
+/* No transform — used on ancestors of sticky elements, since a transform
+   on any ancestor (even a completed one, via animation-fill-mode) breaks
+   position:sticky's relationship with the real scrolling container. */
+@keyframes fadeInNoTransform {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
 @keyframes pulse-ring {
     0%   { transform: scale(1);   opacity: 0.6; }
     100% { transform: scale(1.5); opacity: 0; }
@@ -278,7 +285,7 @@ body {
 
 .tab-content {
     display: none;
-    animation: fadeIn var(--transition-normal) forwards;
+    animation: fadeInNoTransform var(--transition-normal) forwards;
 }
 
 .tab-content.active {
@@ -380,16 +387,6 @@ body {
     cursor: not-allowed;
 }
 
-.btn-primary .btn-spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid rgba(250,248,243,0.35);
-    border-top-color: var(--bg-primary);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    flex-shrink: 0;
-}
-
 /* Download / confirmatory actions — solid navy, not a second accent colour */
 .btn-success {
     background: var(--accent-indigo);
@@ -428,6 +425,10 @@ body {
 
 .btn-reset:hover:not(:disabled) {
     background: var(--accent-indigo-light);
+}
+
+.btn-reset > svg {
+    display: none;
 }
 
 /* ───────── Dropzone ───────── */
@@ -1094,22 +1095,6 @@ body {
 
 /* ═══════════════════ FIELD INTEGRITY REPORT ═══════════════════ */
 
-.field-report-box {
-    margin-top: 16px;
-    padding: 16px;
-    background: var(--bg-sunken);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius);
-}
-
-.field-report-box h4 {
-    font-family: var(--font-display);
-    font-size: 14px;
-    font-weight: 600;
-    margin-bottom: 12px;
-    color: var(--text-primary);
-}
-
 .field-row {
     display: flex;
     justify-content: space-between;
@@ -1373,45 +1358,69 @@ body {
 
 .audit-subnav {
     position: sticky;
-    top: 0;
+    top: -24px;
     z-index: 5;
     display: flex;
-    align-items: center;
-    gap: 1.75rem;
-    background-color: var(--bg-primary);
-    margin-bottom: 1.75rem;
-    border-bottom: 1px solid var(--border-color);
+    align-items: flex-end;
+    gap: 6px;
+    background-color: var(--accent-indigo);
+    margin: -24px 0 1.75rem;
+    padding: 16px 20px 0;
+    box-shadow: 0 4px 12px rgba(30, 58, 95, 0.25);
 }
 
 .audit-subtab {
-    background: none;
+    position: relative;
+    background: rgba(250, 248, 243, 0.08);
     border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-secondary);
+    border-radius: 14px 14px 0 0;
+    color: rgba(250, 248, 243, 0.72);
     font-family: var(--font-sans);
     font-size: 13px;
     font-weight: 500;
-    padding: 0.75rem 0.1rem;
-    margin-bottom: -1px;
-    border-radius: 0;
+    padding: 11px 20px;
     cursor: pointer;
     transition: var(--transition-fast);
     white-space: nowrap;
+    outline: none;
 }
 
 .audit-subtab:hover {
-    color: var(--text-primary);
+    color: var(--bg-primary);
+    background: rgba(250, 248, 243, 0.16);
+}
+
+.audit-subtab:focus-visible {
+    outline: 2px solid var(--bg-primary);
+    outline-offset: -2px;
 }
 
 .audit-subtab.active {
+    background: var(--bg-primary);
     color: var(--accent-indigo);
-    border-bottom-color: var(--accent-indigo);
     font-weight: 600;
+    margin-bottom: -1px;
+    padding-bottom: 12px;
+    box-shadow: 0 -2px 8px rgba(30, 58, 95, 0.15);
+}
+
+.audit-subtab.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 14px;
+    right: 14px;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: var(--accent-green);
 }
 
 .audit-clear-btn {
     margin-left: auto;
-    margin-bottom: 0.5rem;
+    margin-bottom: 14px;
+    background: transparent;
+    border-color: rgba(250, 248, 243, 0.4);
+    color: rgba(250, 248, 243, 0.85);
 }
 
 .audit-panel {
@@ -1467,6 +1476,15 @@ body {
     font-size: 1.4rem;
     font-weight: 700;
     color: var(--text-primary);
+}
+
+.metric-value-toggle {
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.metric-value-toggle:hover {
+    color: var(--accent-indigo);
 }
 
 .coverage-matrix-grid {
@@ -1542,13 +1560,98 @@ body {
     border: 1px dashed var(--border-strong);
 }
 
-/* ═══════════════════ CERTIFICATE PDF PREVIEW ═══════════════════ */
+/* ═══════════════════ MODAL (certificate preview + field report) ═══════════════════ */
 
-.pdf-preview-card {
-    margin-top: 16px;
-    height: 520px;
+.modal-trigger-row {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.modal-trigger-row .btn {
+    flex: 1;
+    width: auto;
+    margin-top: 0;
+}
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(43, 41, 37, 0.35);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+
+.modal-overlay.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.modal-panel {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    box-shadow: 0 12px 32px rgba(43, 41, 37, 0.18);
+    width: min(760px, 92vw);
+    height: min(82vh, 780px);
     display: flex;
     flex-direction: column;
+    transform: translateY(8px) scale(0.98);
+    transition: transform 0.2s ease;
+}
+
+.modal-overlay.visible .modal-panel {
+    transform: translateY(0) scale(1);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.modal-header h3 {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 9px;
+    border-radius: 4px;
+    transition: var(--transition-fast);
+}
+
+.modal-close:hover {
+    color: var(--accent-red);
+    background: var(--bg-sunken);
+}
+
+.modal-body {
+    flex: 1;
+    min-height: 0;
+    padding: 16px 20px 20px;
+    display: flex;
+}
+
+.modal-body-scroll {
+    display: block;
+    overflow-y: auto;
 }
 
 .pdf-preview-frame {

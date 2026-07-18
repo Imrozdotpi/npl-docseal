@@ -106,6 +106,23 @@ function fmtPct(v) {
     return (v === null || v === undefined) ? '—' : `${Number(v).toFixed(1)}%`;
 }
 
+// Shared toggle: clicking either Avg Seal Time or Avg Verify Time flips
+// both between milliseconds and seconds, since they're rendered by the
+// same function off the same state.
+let _showDurationInSeconds = false;
+let _lastPerfSummary = null;
+
+function fmtDuration(v) {
+    if (v === null || v === undefined) return '—';
+    const num = Number(v);
+    return _showDurationInSeconds ? `${(num / 1000).toFixed(2)} s` : `${num.toFixed(1)} ms`;
+}
+
+function toggleDurationUnit() {
+    _showDurationInSeconds = !_showDurationInSeconds;
+    if (_lastPerfSummary) renderPerfSummaryCards(_lastPerfSummary);
+}
+
 // ── Panel 1: Performance Metrics ─────────────────────────────────────
 
 async function renderPerformancePanel() {
@@ -135,6 +152,8 @@ async function renderPerformancePanel() {
 function renderPerfSummaryCards(summary) {
     const container = document.getElementById('perf-summary-cards');
     if (!container) return;
+    _lastPerfSummary = summary;
+    const unitHint = _showDurationInSeconds ? 'Click to show ms' : 'Click to show seconds';
     container.innerHTML = `
         <div class="metric-card">
             <span class="metric-label">Total Operations</span>
@@ -142,11 +161,11 @@ function renderPerfSummaryCards(summary) {
         </div>
         <div class="metric-card">
             <span class="metric-label">Avg Seal Time</span>
-            <span class="metric-value">${fmtMs(summary.avg_seal_duration_ms)}</span>
+            <span class="metric-value metric-value-toggle" onclick="toggleDurationUnit()" title="${unitHint}">${fmtDuration(summary.avg_seal_duration_ms)}</span>
         </div>
         <div class="metric-card">
             <span class="metric-label">Avg Verify Time</span>
-            <span class="metric-value">${fmtMs(summary.avg_verify_duration_ms)}</span>
+            <span class="metric-value metric-value-toggle" onclick="toggleDurationUnit()" title="${unitHint}">${fmtDuration(summary.avg_verify_duration_ms)}</span>
         </div>
         <div class="metric-card">
             <span class="metric-label">Pass Rate</span>
