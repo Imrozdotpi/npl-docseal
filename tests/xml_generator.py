@@ -54,7 +54,7 @@ def build_flat_xml(
     Build a <CalibrationCertificate> XML document as a string.
 
     omit_fields, if given, drops those tags entirely (rather than giving
-    them a wrong value) — used to synthesize the "missing field" tamper
+    them a wrong value). Used to synthesize the "missing field" tamper
     scenario, where a field is absent from the document altogether.
     Recognised names: Organization, CertificateNumber, ValidUntil, Model,
     ModelNumber, SerialNumber, Make, Temperature, RelativeHumidity.

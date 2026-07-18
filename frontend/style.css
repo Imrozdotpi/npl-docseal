@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   NPL DocSeal – Pipeline Console + Audit Dashboard
+   NPL DocSeal: Pipeline Console + Audit Dashboard
    Design system: warm off-white canvas, single navy accent,
    serif headings + monospace data, flat surfaces, no glow/gradients.
    ═══════════════════════════════════════════════════════════════ */
@@ -65,7 +65,7 @@ body {
     from { opacity: 0; transform: translateY(4px); }
     to   { opacity: 1; transform: translateY(0); }
 }
-/* No transform — used on ancestors of sticky elements, since a transform
+/* No transform, used on ancestors of sticky elements, since a transform
    on any ancestor (even a completed one, via animation-fill-mode) breaks
    position:sticky's relationship with the real scrolling container. */
 @keyframes fadeInNoTransform {
@@ -358,21 +358,28 @@ body {
 /* ───────── Blockchain anchoring mode toggle ───────── */
 .anchor-toggle {
     display: flex;
+    height: 38px;
     border: 1px solid var(--border-strong);
-    border-radius: 4px;
+    border-radius: 6px;
     overflow: hidden;
 }
 
 .anchor-toggle-btn {
     flex: 1;
-    padding: 9px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 0 12px;
     background: var(--bg-primary);
     border: none;
     border-left: 1px solid var(--border-strong);
     color: var(--text-secondary);
     font-family: var(--font-sans);
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
     cursor: pointer;
     transition: var(--transition-fast);
 }
@@ -391,6 +398,22 @@ body {
 .anchor-toggle-sub {
     font-weight: 500;
     opacity: 0.75;
+}
+
+.anchor-toggle-hint {
+    margin: 6px 2px 0;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* ───────── Revoke trigger (single button, not a split row) ───────── */
+.revoke-trigger-row {
+    display: flex;
+    margin-top: 12px;
+}
+
+.revoke-trigger-row .btn {
+    width: auto;
 }
 
 .batch-status-note {
@@ -447,7 +470,7 @@ body {
     cursor: not-allowed;
 }
 
-/* Download / confirmatory actions — solid navy, not a second accent colour */
+/* Download / confirmatory actions, solid navy, not a second accent colour */
 .btn-success {
     background: var(--accent-indigo);
     color: var(--bg-primary);
@@ -458,7 +481,7 @@ body {
     background: #16293F;
 }
 
-/* Destructive but secondary in prominence — outline, per single-accent rule */
+/* Destructive but secondary in prominence, outline, per single-accent rule */
 .btn-danger {
     background: transparent;
     border: 1px solid var(--border-strong);
@@ -742,7 +765,7 @@ body {
     min-height: 54px;
 }
 
-/* Vertical connector line — structural progress indicator, single accent, no glow */
+/* Vertical connector line, structural progress indicator, single accent, no glow */
 .pipeline-step .connector {
     position: absolute;
     left: 15px;
@@ -842,7 +865,7 @@ body {
 .pipeline-step.step-error .step-title { color: var(--accent-red); }
 .pipeline-step.step-error .step-sub { color: var(--accent-red); }
 
-/* State: queued — batch anchoring, awaiting the next scheduled flush.
+/* State: queued for batch anchoring, awaiting the next scheduled flush.
    Amber, not indigo/green/red: it isn't running, done, or failed, it's
    parked pending a background process outside this request. */
 .pipeline-step.step-queued .icon-circle {
@@ -962,7 +985,7 @@ body {
 .info-trigger:hover .tooltip-text { display: block; }
 
 /* ═══════════════════ SUMMARY / ERROR / FAILURE CARDS ═══════════════════
-   Thin colour-coded left border on a cream card — not a full-colour banner. */
+   Thin colour-coded left border on a cream card, not a full-colour banner. */
 
 .pipeline-summary {
     margin-top: 20px;
@@ -1142,7 +1165,7 @@ body {
 
 .audit-table tr:hover td { background-color: var(--accent-indigo-light); }
 
-/* Status badges — text + small solid dot, not colour-filled pills */
+/* Status badges, text + small solid dot, not colour-filled pills */
 .badge {
     display: inline-flex;
     align-items: center;
@@ -1431,7 +1454,7 @@ body {
     font-style: italic;
 }
 
-/* Revoked — a distinct amber state, not the same red as tampering: a
+/* Revoked: a distinct amber state, not the same red as tampering. A
    revoked certificate is business-invalidated, not cryptographically
    broken, so it must read differently at a glance. */
 .failure-banner.revoked {
@@ -1442,7 +1465,7 @@ body {
 }
 
 /* ==================================================================
-   Audit Dashboard (Tab 3) — sub-nav, panels, cards, coverage matrix
+   Audit Dashboard (Tab 3), sub-nav, panels, cards, coverage matrix
    ================================================================== */
 
 .audit-subnav {
@@ -1698,7 +1721,7 @@ body {
     transform: translateY(0) scale(1);
 }
 
-/* Smaller, content-height variant — for short forms like the revoke modal,
+/* Smaller, content-height variant, for short forms like the revoke modal,
    as opposed to the fixed-size document-preview modals. */
 .modal-panel-compact {
     width: min(440px, 92vw);

@@ -3,13 +3,13 @@ tests/test_batch_anchor.py
 
 Tests core/batch_anchor.py's BatchQueue and verify_inclusion(). These
 exercise core.batch_anchor directly (not the HTTP API), but flush() still
-performs a REAL Ethereum Sepolia transaction via core.timestamper.stamp_hash
-— no mocking, same policy as the rest of this suite. The two tests that
+performs a REAL Ethereum Sepolia transaction via core.timestamper.stamp_hash,
+no mocking, same policy as the rest of this suite. The two tests that
 need a flushed batch share a single real flush rather than repeating one
 per test, to avoid firing a blockchain transaction for every assertion.
 
 Requires the real SEPOLIA_* env vars configured (same requirement as any
-other seal) — the server itself does not need to be running, since this
+other seal). The server itself does not need to be running, since this
 talks to core.batch_anchor directly.
     venv/Scripts/python.exe -m pytest tests/test_batch_anchor.py -v
 """
@@ -22,7 +22,7 @@ from core.batch_anchor import BatchQueue, verify_inclusion
 
 def _fake_root(tag: str) -> str:
     """A syntactically valid (64 hex char) fake Merkle root, unique per
-    tag. Batch anchoring only cares that these are hex strings — it
+    tag. Batch anchoring only cares that these are hex strings. It
     doesn't need a real sealed document behind them, so there's no need
     to actually run the seal pipeline for these tests."""
     return hashlib.sha256(tag.encode("utf-8")).hexdigest()

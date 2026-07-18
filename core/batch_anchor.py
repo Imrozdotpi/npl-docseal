@@ -1,9 +1,9 @@
 """
-batch_anchor.py — Batch Merkle anchoring for NPL DocSeal.
+batch_anchor.py: Batch Merkle anchoring for NPL DocSeal.
 
 Instead of one Ethereum transaction per sealed document, BatchQueue groups
 several document Merkle roots into a second-level Merkle tree and anchors
-only the resulting batch_root — one transaction covers N documents. Each
+only the resulting batch_root: one transaction covers N documents. Each
 document keeps a per-document inclusion proof (the sibling hashes needed
 to walk back up to batch_root) as its evidence of having been anchored.
 
@@ -11,8 +11,8 @@ Note on proof format: core.merkle's tree hashes concatenate leaves in a
 fixed left/right order (current[i] + current[i+1]), so verifying a proof
 there requires knowing each sibling's side. The batch proof format here is
 a flat list of sibling hashes with no side information (per spec), so this
-tree instead combines pairs order-independently — sorted(a, b) before
-hashing — making a flat sibling list sufficient to verify unambiguously.
+tree instead combines pairs order-independently (sorted(a, b) before
+hashing), making a flat sibling list sufficient to verify unambiguously.
 """
 
 import threading
@@ -77,8 +77,8 @@ class BatchQueue:
     """
     Holds pending document Merkle roots awaiting blockchain anchoring.
     Flushes when either max_batch_size documents have accumulated or
-    max_wait_seconds has elapsed since the oldest pending item was added
-    — whichever comes first.
+    max_wait_seconds has elapsed since the oldest pending item was added,
+    whichever comes first.
     """
 
     def __init__(self, max_batch_size: int = 20, max_wait_seconds: int = 60):

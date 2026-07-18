@@ -3,13 +3,13 @@ tests/test_revocation.py
 
 Tests core/revocation.py and the /api/revoke, /api/revocations endpoints,
 plus the revocation check inside /api/verify. Runs against the REAL live
-server (no mocking) — same approach as tests/test_comprehensive_suite.py.
+server (no mocking), same approach as tests/test_comprehensive_suite.py.
 
 Run with the server already running (see backend/api.py), then:
     venv/Scripts/python.exe -m pytest tests/test_revocation.py -v
 
 Note: revocation is append-only by design, so entries created by this
-suite become permanent additions to data/revocation_list.json — consistent
+suite become permanent additions to data/revocation_list.json, consistent
 with how the rest of the suite permanently populates the real audit log.
 """
 
@@ -31,7 +31,7 @@ PUBLIC_KEY_PATH = "keys/public_key.pem"
 def _require_server():
     if not api.server_reachable():
         pytest.exit(
-            f"Server not reachable at {api.API_URL} — start it first "
+            f"Server not reachable at {api.API_URL}: start it first "
             f"(uvicorn backend.api:app --host 127.0.0.1 --port 8000).",
             returncode=1,
         )
@@ -90,7 +90,7 @@ def test_verify_fails_after_revocation_via_api():
     )
     assert revoke_result["status_code"] == 200, revoke_result
 
-    # Same package, same password — now must FAIL with revoked:True, even
+    # Same package, same password: now must FAIL with revoked:True, even
     # though the signature and Merkle root are still perfectly valid.
     post = api.verify(zip_bytes, api.PASSWORD, test_scenario="revocation")
     post_body = post["json"]
@@ -117,7 +117,7 @@ def test_tampered_revocation_list_fails_signature_check():
     )
     assert revocation.verify_revocation_signature(entry, PUBLIC_KEY_PATH) is True
 
-    # Bypass the API entirely — hand-edit the registry file on disk, as if
+    # Bypass the API entirely: hand-edit the registry file on disk, as if
     # an attacker (or a careless admin) had modified the reason directly.
     registry_path = revocation.REVOCATION_LIST_PATH
     original_bytes = registry_path.read_bytes()
@@ -125,11 +125,11 @@ def test_tampered_revocation_list_fails_signature_check():
         registry = json.loads(original_bytes)
         for e in registry["revoked"]:
             if e["merkle_root"] == root:
-                e["reason"] = "Tampered reason — never actually signed"
+                e["reason"] = "Tampered reason: never actually signed"
         registry_path.write_text(json.dumps(registry, indent=2))
 
         tampered_entry = revocation.is_revoked(root)
-        assert tampered_entry["reason"] == "Tampered reason — never actually signed"
+        assert tampered_entry["reason"] == "Tampered reason: never actually signed"
         assert revocation.verify_revocation_signature(tampered_entry, PUBLIC_KEY_PATH) is False
     finally:
         # Restore the registry so this deliberately-corrupted entry doesn't

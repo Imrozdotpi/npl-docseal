@@ -9,7 +9,7 @@ def _sha256(data: str) -> str:
 def _flatten_fields(parsed: dict) -> dict:
     """
     Takes the dict from parse_xml() and returns a flat ordered dict
-    of field_name -> value strings. Order is fixed and deterministic —
+    of field_name -> value strings. Order is fixed and deterministic:
     this is critical, same XML must always produce same Merkle tree.
     """
     fields = {}
@@ -35,7 +35,7 @@ def _flatten_fields(parsed: dict) -> dict:
     fields["environment_temperature"]      = str(env.get("temperature", ""))
     fields["environment_relative_humidity"]= str(env.get("relative_humidity", ""))
 
-    # Measurement results — each row becomes 3 named fields
+    # Measurement results, each row becomes 3 named fields
     results = parsed.get("results", [])
     for i, row in enumerate(results):
         fields[f"result_{i+1}_indicated"] = str(row.get("indicated_value", ""))
@@ -79,7 +79,7 @@ def build_merkle_tree(parsed: dict) -> dict:
         "field_hashes": {field_name: sha256_hex},
         "leaves":       [sha256_hex, ...],   # ordered list of leaf hashes
         "tree":         [[level0], [level1], ...],
-        "root":         sha256_hex            # the Merkle root — this gets signed
+        "root":         sha256_hex            # the Merkle root: this gets signed
     }
     """
     fields = _flatten_fields(parsed)

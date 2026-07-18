@@ -1,10 +1,10 @@
 """
-revocation.py — Key/certificate revocation registry for NPL DocSeal.
+revocation.py: Key/certificate revocation registry for NPL DocSeal.
 
 Maintains an append-only JSON list at data/revocation_list.json. Each
 revocation entry is itself signed with the Director's private key (over
 merkle_root + reason + revoked_at) so the registry can't be silently
-edited — verify_revocation_signature() re-checks that signature against
+edited: verify_revocation_signature() re-checks that signature against
 whatever is currently on disk.
 """
 
@@ -50,7 +50,7 @@ def revoke_certificate(
     """
     Signs (merkle_root, reason, revoked_at) with the Director's private key
     and appends the resulting entry to the revocation registry. Raises
-    whatever core.signer.sign_bytes raises (e.g. wrong passphrase) — callers
+    whatever core.signer.sign_bytes raises (e.g. wrong passphrase); callers
     are expected to translate that into a 401 at the API layer.
     """
     revoked_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -89,7 +89,7 @@ def is_revoked(merkle_root: str) -> dict | None:
 def verify_revocation_signature(entry: dict, public_key_path: str) -> bool:
     """
     Re-verifies that a revocation entry was genuinely signed by the holder
-    of private_key_path — catches tampering with the JSON file itself
+    of private_key_path. Catches tampering with the JSON file itself
     (e.g. someone hand-editing a revocation's reason or un-revoking an
     entry by deleting it, or forging a new one without the private key).
     """

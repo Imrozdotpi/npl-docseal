@@ -6,12 +6,12 @@ the CSIR-NPL certificate layout from the uploaded sample.
 
 Layout (top → bottom)
 ──────────────────────
-  ① Header banner  – NPL logos + lab name (navy bg, white text)
+  ① Header banner: NPL logos + lab name (navy bg, white text)
   ② Thin rule
   ③ "Calibration Certificate" title bar (navy bg)
-  ④ Info table     – key / value rows (Calibrated for … Methodology)
+  ④ Info table: key / value rows (Calibrated for … Methodology)
   ⑤ "1. Results" heading
-  ⑥ Results table  – dynamic rows from XML
+  ⑥ Results table: dynamic rows from XML
   ⑦ Uncertainty note paragraph
   ⑧ Horizontal rule
   ⑨ Disclaimer italic line
@@ -34,8 +34,8 @@ from reportlab.platypus import (
 )
 from reportlab.platypus import NextPageTemplate
 
-# ── Logo file paths — resolved relative to this module's own location so
-# ── generation works regardless of the server process's cwd. ────────────────
+# Logo file paths, resolved relative to this module's own location so
+# generation works regardless of the server process's cwd.
 _ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO_LEFT:  str = str(_ASSETS_DIR / "CSIR_Logo.jpg")
 LOGO_RIGHT: str = str(_ASSETS_DIR / "NPL_Logo.png")
@@ -316,7 +316,7 @@ def generate_pdf(data: dict[str, Any], output_path: str) -> None:
     story.append(_title_bar(S))
     story.append(Spacer(1, 4*mm))
 
-    # ② Info table – build rows, omitting fields absent from the XML
+    # ② Info table: build rows, omitting fields absent from the XML
     instr = data.get("instrument", {})
     env   = data.get("environment", {})
 

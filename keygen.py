@@ -12,7 +12,7 @@ def generate_keys(passphrase: str, output_dir: Path = Path("keys"), name: str = 
     Generate an RSA-4096 key pair and save it to PEM files.
 
     name, if given, prefixes the file names (e.g. name="demo" produces
-    demo_private_key.pem / demo_public_key.pem) — used to keep a separate
+    demo_private_key.pem / demo_public_key.pem). Used to keep a separate
     key pair for the public challenge demo distinct from the real signing
     key. An empty name preserves the original private_key.pem/public_key.pem
     naming.

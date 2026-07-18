@@ -17,7 +17,7 @@ Schema-aware: designed around the actual DCC_clamp_meter XML structure:
         <IndicatedValueA>, <MeasuredValueA>, <ExpandedUncertaintyPercent>
 
 Additional or renamed tags in other schemas are handled via FIELD_CANDIDATES
-fallback lists – add new aliases there to support future schemas without
+fallback lists: add new aliases there to support future schemas without
 touching any other file.
 """
 
@@ -26,7 +26,7 @@ from typing import Any
 
 
 # ---------------------------------------------------------------------------
-# Candidate tag lists – ordered: most-specific / most-common first.
+# Candidate tag lists, ordered: most-specific / most-common first.
 # The parser tries each in turn and returns the first non-empty match.
 # Add aliases for new schemas at the END of each list.
 # ---------------------------------------------------------------------------
@@ -209,7 +209,7 @@ def _collect_results(root: ET.Element) -> list[dict[str, str]]:
             if rows:
                 break
 
-    # 2. Fallback – search entire tree
+    # 2. Fallback: search entire tree
     if not rows:
         for row_tag in RESULT_ROW_TAGS:
             rows = root.findall(f".//{row_tag}")

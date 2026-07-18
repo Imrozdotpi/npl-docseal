@@ -3,8 +3,8 @@ tests/api_helpers.py
 
 Shared HTTP + ZIP-manipulation utilities for the comprehensive test suite.
 Every helper here talks to the REAL running server over HTTP (same as the
-browser does) — nothing is mocked. Tamper scenarios work by unzipping a
-genuinely sealed package, swapping one member's bytes, and rezipping —
+browser does); nothing is mocked. Tamper scenarios work by unzipping a
+genuinely sealed package, swapping one member's bytes, and rezipping;
 never by hand-crafting fake packages.
 """
 
@@ -139,7 +139,7 @@ def flip_bytes(data: bytes, index: int = 5) -> bytes:
 
 def mutate_one_char(text: str, target: str) -> str:
     """Replace the first occurrence of `target` (a plain numeric string like
-    '20.2') with a variant differing by one digit — a generic, undirected
+    '20.2') with a variant differing by one digit: a generic, undirected
     single-value corruption rather than a purpose-built field tamper."""
     idx = text.index(target)
     chars = list(target)
@@ -154,7 +154,7 @@ def mutate_one_char(text: str, target: str) -> str:
 def remove_proof_field(zip_bytes: bytes, field_name: str) -> bytes:
     """Delete one field's hash from merkle_proof.json inside a sealed ZIP,
     simulating a proof/document correspondence break (e.g. the document
-    was sealed under a different field schema) — exercises the MISSING
+    was sealed under a different field schema). Exercises the MISSING
     field-status path, which a plain content edit can never reach (a
     removed XML tag just parses back as an unchanged 'N/A' field name,
     which is detected as TAMPERED, not MISSING)."""
