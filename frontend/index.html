@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=26">
+    <link rel="stylesheet" href="style.css?v=28">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -132,6 +132,18 @@
                                 <input type="password" id="key-passphrase" placeholder="Enter passphrase to unlock signature key">
                             </div>
 
+                            <div class="form-group">
+                                <label>Blockchain Anchoring</label>
+                                <div class="anchor-toggle" role="radiogroup" aria-label="Blockchain anchoring mode">
+                                    <button type="button" id="anchor-mode-immediate" class="anchor-toggle-btn active" onclick="setAnchorMode('immediate')">
+                                        Anchor Immediately
+                                    </button>
+                                    <button type="button" id="anchor-mode-batch" class="anchor-toggle-btn" onclick="setAnchorMode('batch')">
+                                        Anchor in Batch <span class="anchor-toggle-sub">(~60s delay)</span>
+                                    </button>
+                                </div>
+                            </div>
+
                             <div id="seal-api-error" class="api-error-banner"></div>
 
                             <button id="btn-seal" class="btn btn-primary" onclick="sealDocument()">
@@ -150,6 +162,7 @@
 
                             <!-- Summary card (inserted by JS) -->
                             <div id="seal-summary" class="pipeline-summary"></div>
+                            <div id="seal-batch-status" class="batch-status-note"></div>
                             <div id="seal-error-card" class="pipeline-error"></div>
                             <div id="seal-failure-banner" class="failure-banner"></div>
 
@@ -164,6 +177,38 @@
                                     <span id="seal-download-text">Download Sealed ZIP</span>
                                 </button>
                                 <div class="download-sub" id="seal-download-sub">Sealed archive ready</div>
+                            </div>
+
+                            <div id="seal-revoke-trigger-row" class="modal-trigger-row" style="display: none;">
+                                <button id="btn-revoke-seal" class="btn btn-danger btn-sm" onclick="openModal('revoke-modal')">
+                                    Revoke this Certificate
+                                </button>
+                            </div>
+
+                            <div id="revoke-modal" class="modal-overlay" onclick="if (event.target === this) closeModal('revoke-modal')">
+                                <div class="modal-panel modal-panel-compact">
+                                    <div class="modal-header">
+                                        <h3>Revoke Certificate</h3>
+                                        <button type="button" class="modal-close" onclick="closeModal('revoke-modal')" aria-label="Close">×</button>
+                                    </div>
+                                    <div class="modal-body modal-body-scroll">
+                                        <p class="page-desc" style="margin-bottom: 14px;">
+                                            This marks Merkle root <span id="revoke-modal-root" class="stat-value"></span> as revoked.
+                                            Future verifications of this document will report <strong>REVOKED</strong>, not PASS —
+                                            regardless of signature or field validity.
+                                        </p>
+                                        <div class="form-group">
+                                            <label for="revoke-reason">Reason</label>
+                                            <input type="text" id="revoke-reason" placeholder="e.g. Calibration reading error discovered post-issuance">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="revoke-keypass">Director's Key Passphrase</label>
+                                            <input type="password" id="revoke-keypass" placeholder="Authorizes this revocation">
+                                        </div>
+                                        <div id="revoke-api-error" class="api-error-banner"></div>
+                                        <button id="btn-confirm-revoke" class="btn btn-danger" onclick="confirmRevocation()">Revoke Certificate</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -336,7 +381,7 @@
         </main>
     </div>
 
-    <script src="main.js?v=17"></script>
+    <script src="main.js?v=19"></script>
     <script src="audit.js?v=18"></script>
 </body>
 </html>
