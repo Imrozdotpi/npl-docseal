@@ -488,10 +488,15 @@ body {
     color: var(--text-secondary);
 }
 
-.btn-danger:hover {
+.btn-danger:hover:not(:disabled) {
     background: var(--bg-sunken);
     border-color: var(--accent-red);
     color: var(--accent-red);
+}
+
+.btn-danger:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 .btn-sm {
