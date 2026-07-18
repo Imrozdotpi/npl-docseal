@@ -270,6 +270,29 @@ def test_duplicate_zip_member():
     assert "enc" in api.all_response_text(body)
 
 
+def test_missing_public_key():
+    sealed = get_sealed(10)
+    pub_arcname = api.find_arcname(sealed["zip_bytes"], "public_key.pem")
+    broken_zip = api.rebuild_zip_without_member(sealed["zip_bytes"], pub_arcname)
+
+    result = api.verify(broken_zip, api.PASSWORD, test_scenario="missing_public_key")
+    body = result["json"]
+
+    assert body.get("overall") == "FAIL", body
+    assert "public" in api.all_response_text(body)
+
+
+def test_duplicate_ots_member():
+    sealed = get_sealed(10)
+    broken_zip = api.rebuild_zip_with_extra(sealed["zip_bytes"], "extra_proof.xml.ots", b"decoy")
+
+    result = api.verify(broken_zip, api.PASSWORD, test_scenario="duplicate_ots_member")
+    body = result["json"]
+
+    assert body.get("overall") == "FAIL", body
+    assert "ots" in api.all_response_text(body)
+
+
 def test_non_xml_upload():
     result = api.seal("This is plainly not an XML document.", "not_xml.xml", test_scenario="non_xml_upload")
     body = result["json"]
