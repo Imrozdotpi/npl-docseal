@@ -9,7 +9,7 @@ on:
 
 jobs:
   # Fast tier: pure crypto/logic unit tests. No server, no network, no
-  # blockchain — runs on every push and PR in a few seconds.
+  # blockchain: runs on every push and PR in a few seconds.
   unit-tests:
     name: Unit tests (hasher / merkle / signer)
     runs-on: ubuntu-latest
@@ -35,7 +35,7 @@ jobs:
 
   # Slow tier: real HTTP calls against a live server, real RSA-4096/AES-256
   # crypto, real Ethereum Sepolia transactions. Deliberately NOT run on
-  # every push/PR — it's slow (blockchain confirmation alone is
+  # every push/PR: it's slow (blockchain confirmation alone is
   # ~10-30s per seal), costs real testnet gas each run, and rapid
   # back-to-back seals can trip a real nonce-collision edge case
   # ("replacement transaction underpriced"). Runs on manual dispatch only;

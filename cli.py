@@ -109,7 +109,7 @@ def seal_document(filepath: str, password: str, keypass: str):
     # ── 8. Report ─────────────────────────────
     print()
     print("=" * 45)
-    print("NPL DOCSEAL — SEAL REPORT")
+    print("NPL DOCSEAL: SEAL REPORT")
     print("=" * 45)
     print(f"File        : {file_path.name}")
     print(f"Merkle Root : {merkle_root[:32]}...")
@@ -217,7 +217,7 @@ def verify_document(enc_file: str, password: str):
 
     print()
     print("=" * 45)
-    print("NPL DOCSEAL — VERIFICATION REPORT")
+    print("NPL DOCSEAL: VERIFICATION REPORT")
     print("=" * 45)
     print(f"File        : {decrypted_path.name}")
     print(f"Signature   : {'VALID' if signature_valid else 'INVALID'}")
@@ -264,7 +264,7 @@ def verify_document(enc_file: str, password: str):
 def main():
 
     parser = argparse.ArgumentParser(
-        description="NPL DocSeal — Cryptographic Calibration Certificate Protection"
+        description="NPL DocSeal: Cryptographic Calibration Certificate Protection"
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)

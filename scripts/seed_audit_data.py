@@ -5,7 +5,7 @@ Populates data/audit_log.db with realistic operations by calling the real
 /api/seal and /api/verify endpoints against both sample XML schemas
 (flat_xml and dcc_xml), tagged with test_scenario values so the Audit Log
 dashboard's coverage matrix, tamper-frequency chart, and performance charts
-have meaningful content for a demo. No rows are inserted directly — every
+have meaningful content for a demo. No rows are inserted directly: every
 row in the DB corresponds to a real HTTP request the server actually
 processed.
 

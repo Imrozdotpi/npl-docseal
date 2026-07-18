@@ -50,9 +50,9 @@ PRIVATE_KEY = Path("keys/private_key.pem")
 PUBLIC_KEY = Path("keys/public_key.pem")
 
 # ─────────────────────────────────────────────────────────────────
-# Batch Merkle anchoring — module-level singletons (Feature 2, sprint).
+# Batch Merkle anchoring: module-level singletons (Feature 2, sprint).
 # _batch_records maps a per-seal document_id (returned to the client as
-# "batch_id" — one per queued document, not one per shared batch) to its
+# "batch_id": one per queued document, not one per shared batch) to its
 # anchoring status, filled in by the background flush loop below.
 # ─────────────────────────────────────────────────────────────────
 _batch_queue = BatchQueue()
@@ -211,7 +211,7 @@ SEAL_STEP_DEFS = [
     ("aes_encryption", "AES-256-GCM Encryption"),
     ("blockchain_anchor", "Anchoring to Blockchain"),
     ("packaging", "Packaging Output ZIP"),
-    ("complete", "Sealed — Ready to Download"),
+    ("complete", "Sealed and Ready to Download"),
 ]
 
 VERIFY_STEP_DEFS = [
@@ -572,10 +572,10 @@ async def seal_document(
         complete_summary = ("Your certificate is sealed and queued for batch anchoring."
                              if batch else
                              "Your certificate is cryptographically sealed and tamper-evident.")
-        overall_status_detail = ("PASS — Document sealed; blockchain anchor pending (batch)"
+        overall_status_detail = ("PASS: document sealed; blockchain anchor pending (batch)"
                                   if batch else
-                                  "PASS — Document successfully sealed and anchored")
-        steps.append(_make_step("complete", "Sealed — Ready to Download", "completed", t9, t9 + 0.001,
+                                  "PASS: document successfully sealed and anchored")
+        steps.append(_make_step("complete", "Sealed and Ready to Download", "completed", t9, t9 + 0.001,
             complete_summary,
             {"overall_status": overall_status_detail,
              "total_steps": len(SEAL_STEP_DEFS),
@@ -824,7 +824,7 @@ async def verify_document(
                 signature_valid = verify_bytes(stored_root.encode("utf-8"), signature_bytes, temp_pub_name)
             t7e = time.time()
             steps.append(_make_step("signature_verify", "Verifying RSA Signature", "completed", t7, t7e,
-                f"RSA signature {'verified — authentic.' if signature_valid else 'INVALID — document may have been tampered.'}",
+                f"RSA signature {'verified: authentic.' if signature_valid else 'INVALID: document may have been tampered.'}",
                 {"algorithm": "RSA-PSS (SHA-256, MGF1-SHA256)",
                  "signature_valid": signature_valid,
                  "key_fingerprint": _key_fingerprint(temp_pub_name)}))
@@ -889,7 +889,7 @@ async def verify_document(
             t9e = time.time()
 
             if tampered_count == 0:
-                summary_text = f"All {intact_count} fields intact — no tampering detected."
+                summary_text = f"All {intact_count} fields intact, no tampering detected."
             else:
                 summary_text = f"{tampered_count} tampered field(s) detected out of {intact_count + tampered_count}."
 
@@ -911,7 +911,7 @@ async def verify_document(
 
         # ── Revocation check ──
         # A revoked certificate must never verify as PASS regardless of
-        # cryptographic validity — revocation is a business-level
+        # cryptographic validity: revocation is a business-level
         # invalidation, not a tampering signal, so it's reported separately
         # from the field/signature checks above.
         revocation_entry = revocation.is_revoked(stored_root)
@@ -938,7 +938,7 @@ async def verify_document(
 
         steps.append(_make_step("complete", "Verification Complete", "completed", t10, t10 + 0.001,
             complete_summary,
-            {"verdict": f"{overall} — {complete_summary}",
+            {"verdict": f"{overall}: {complete_summary}",
              "overall": overall,
              "total_steps": len(VERIFY_STEP_DEFS),
              "completed_steps": len(VERIFY_STEP_DEFS),
@@ -990,7 +990,7 @@ class RevokeRequest(BaseModel):
 async def revoke_certificate_endpoint(payload: RevokeRequest):
     """
     Revoke a previously sealed certificate by its Merkle root. Requires the
-    Director's private key passphrase — this is what authorizes the action,
+    Director's private key passphrase: this is what authorizes the action,
     not just knowledge of the merkle_root/certificate_number (those are
     public information found inside any sealed package).
     """
@@ -1006,7 +1006,7 @@ async def revoke_certificate_endpoint(payload: RevokeRequest):
             keypass=payload.keypass,
         )
     except Exception:
-        raise HTTPException(status_code=401, detail="Incorrect keypass — revocation not authorized.")
+        raise HTTPException(status_code=401, detail="Incorrect keypass: revocation not authorized.")
 
     return entry
 
@@ -1023,7 +1023,7 @@ async def batch_status(batch_id: str):
     """
     Reports whether a document sealed with ?batch=true has been anchored
     yet. batch_id is the id returned by /api/seal for that specific
-    document — not a shared identifier across the whole flushed batch.
+    document, not a shared identifier across the whole flushed batch.
     """
     record = _batch_records.get(batch_id)
     if record is None:
@@ -1037,7 +1037,7 @@ async def batch_status(batch_id: str):
 async def preview_pdf(xml_file: UploadFile = File(...)):
     """
     Render a calibration certificate XML into a branded PDF, on demand.
-    Does not touch the seal/verify pipelines or audit logging — this is a
+    Does not touch the seal/verify pipelines or audit logging. This is a
     read-only preview generated only when the user asks for it.
     """
     temp_dir = Path(tempfile.mkdtemp(dir="."))
@@ -1067,7 +1067,7 @@ async def preview_pdf(xml_file: UploadFile = File(...)):
 
 # ─────────────────────────────────────────────────────────────────
 # Audit dashboard endpoints (Tab 3)
-# NOTE: no authentication/authorization — this is fine for this
+# NOTE: no authentication/authorization. This is fine for this
 # internship-scope project, but would need auth in production.
 # ─────────────────────────────────────────────────────────────────
 

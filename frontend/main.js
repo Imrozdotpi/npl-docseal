@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// NPL DocSeal – Integrated Frontend: Pipeline Animation + Backend
+// NPL DocSeal: Integrated Frontend, Pipeline Animation + Backend
 // ═══════════════════════════════════════════════════════════════
 
 // ─── State ───
@@ -40,7 +40,7 @@ const SEAL_STEPS = [
     { title: 'AES-256-GCM encryption', avg: 'avg ~0.3s', hasTooltip: false },
     { title: 'Anchoring to blockchain', avg: 'avg ~12s', hasTooltip: true },
     { title: 'Packaging output ZIP', avg: 'avg ~0.4s', hasTooltip: false },
-    { title: 'Sealed — ready to download', avg: 'avg ~0.1s', hasTooltip: false },
+    { title: 'Sealed, ready to download', avg: 'avg ~0.1s', hasTooltip: false },
 ];
 
 const VERIFY_STEPS = [
@@ -292,12 +292,12 @@ function setStepState(containerId, index, state, duration, doneSub) {
             break;
         case 'error':
             iconCircle.innerHTML = SVG_X;
-            subEl.textContent = doneSub || 'Failed — see details below';
+            subEl.textContent = doneSub || 'Failed, see details below';
             if (badgeEl) { badgeEl.textContent = 'Failed'; badgeEl.className = 'avg-badge badge-error'; }
             break;
         case 'skipped':
             iconCircle.innerHTML = SVG_SKIP;
-            subEl.textContent = doneSub || 'Skipped — previous step failed';
+            subEl.textContent = doneSub || 'Skipped: previous step failed';
             if (badgeEl) { badgeEl.textContent = 'Skipped'; badgeEl.className = 'avg-badge badge-skipped'; }
             break;
         case 'queued':
@@ -355,7 +355,7 @@ async function animatePipelineFromBackend(containerId, backendSteps) {
         if (step.status === 'completed') {
             setStepState(containerId, i, 'done', durationMs / 1000, step.summary);
         } else if (step.status === 'failed') {
-            setStepState(containerId, i, 'error', null, step.summary || 'Failed — see details below');
+            setStepState(containerId, i, 'error', null, step.summary || 'Failed, see details below');
         } else if (step.status === 'queued') {
             setStepState(containerId, i, 'queued', durationMs / 1000, 'Queued for batch anchoring…');
         }
@@ -370,7 +370,7 @@ async function animatePipelineFromBackend(containerId, backendSteps) {
         }
 
         if (step.status === 'failed') {
-            // Continue loop — remaining steps will be handled by the skipped branch
+            // Continue the loop: remaining steps are handled by the skipped branch
         }
     }
 }
@@ -416,7 +416,7 @@ function showRevokedBanner(elementId, details) {
             <div class="fb-row"><span class="fb-label">Revoked At</span><span class="fb-value">${revokedAt}</span></div>
             <div class="fb-row"><span class="fb-label">Revoked By</span><span class="fb-value">${revokedBy}</span></div>
         </div>
-        <div class="failure-footer">This certificate is cryptographically valid but has since been invalidated by a business decision — not a tampering signal.</div>
+        <div class="failure-footer">This certificate is cryptographically valid but has since been invalidated by a business decision, not a tampering signal.</div>
     `;
     el.classList.add('revoked');
     el.classList.add('visible');
@@ -730,7 +730,7 @@ async function sealDocument() {
             };
 
         } else {
-            // FAIL — find the failed step
+            // FAIL: find the failed step
             const failedStep = (apiResult.steps || []).find(s => s.status === 'failed');
             if (failedStep) {
                 showFailureBanner('seal-failure-banner', failedStep);
@@ -779,7 +779,7 @@ function showSealSummary(fieldCount, totalTime, apiResult) {
         ? `<div class="stat-row"><span class="stat-label">Document Root</span><span class="stat-value">${formatCryptoChip(apiResult.hash, 'Merkle Root')}</span></div>`
         : '';
     const blockchainValue = apiResult && apiResult.batch_status === 'queued'
-        ? 'Ethereum Sepolia (batch — pending)'
+        ? 'Ethereum Sepolia (batch pending)'
         : 'Ethereum Sepolia';
     el.innerHTML = `
         <div class="summary-header">${SVG_CHECK_SM} Sealing Complete</div>
@@ -802,6 +802,9 @@ function setAnchorMode(mode) {
     sealAnchorMode = mode;
     document.getElementById('anchor-mode-immediate').classList.toggle('active', mode === 'immediate');
     document.getElementById('anchor-mode-batch').classList.toggle('active', mode === 'batch');
+    document.getElementById('anchor-toggle-hint').textContent = mode === 'batch'
+        ? 'Groups several documents into one blockchain transaction: cheaper, about 60s slower.'
+        : 'One blockchain transaction per document, confirmed in ~12s.';
 }
 
 function startBatchStatusPolling(batchId) {
@@ -818,18 +821,18 @@ function startBatchStatusPolling(batchId) {
             const status = await res.json();
             if (status.status === 'anchored') {
                 stopBatchStatusPolling();
-                note.textContent = `Anchored — tx ${status.tx_hash.slice(0, 16)}…`;
+                note.textContent = `Anchored: tx ${status.tx_hash.slice(0, 16)}…`;
                 note.classList.add('anchored');
 
                 // The blockchain_anchor step is a fixed position in SEAL_STEPS
-                // (index 6) — reflect the now-confirmed anchor there too.
-                setStepState('seal-pipeline', 6, 'done', null, `Anchored in batch — tx ${status.tx_hash.slice(0, 16)}…`);
+                // (index 6); reflect the now-confirmed anchor there too.
+                setStepState('seal-pipeline', 6, 'done', null, `Anchored in batch: tx ${status.tx_hash.slice(0, 16)}…`);
 
                 const blockchainValueEl = document.getElementById('seal-summary-blockchain-value');
                 if (blockchainValueEl) blockchainValueEl.textContent = 'Ethereum Sepolia (batch confirmed)';
             }
         } catch (err) {
-            // Network hiccup — silently retry on the next tick.
+            // Network hiccup, silently retry on the next tick.
         }
     }, 3000);
 }
@@ -876,7 +879,7 @@ async function confirmRevocation() {
         closeModal('revoke-modal');
         const triggerRow = document.getElementById('seal-revoke-trigger-row');
         triggerRow.innerHTML = `<div class="api-error-banner visible" style="border-left-color: var(--accent-amber); color: var(--accent-amber);">
-            Certificate revoked ${new Date(entry.revoked_at).toLocaleString()} — "${entry.reason}"
+            Certificate revoked ${new Date(entry.revoked_at).toLocaleString()}: "${entry.reason}"
         </div>`;
     } catch (err) {
         showApiError('revoke-api-error', err.message);
@@ -939,7 +942,7 @@ async function verifyDocument() {
 
             if (apiResult.revoked) {
                 // Revocation is a business-level invalidation, not a
-                // cryptographic failure — the pipeline itself completed
+                // cryptographic failure: the pipeline itself completed
                 // cleanly, so there's no failedStep to point at.
                 showRevokedBanner('verify-failure-banner', apiResult.revocation_details);
             } else if (failedStep) {

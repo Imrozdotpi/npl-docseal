@@ -6,7 +6,7 @@ CalibrationCertificate XML documents across a range of sizes, seals and
 verifies them against the REAL running server (no mocking), and exercises
 the full tamper-detection + package-integrity matrix. Every call here is a
 genuine HTTP request that also populates the audit dashboard as a side
-effect — this is both a correctness test suite and a data-generation tool
+effect: this is both a correctness test suite and a data-generation tool
 for the Performance / Validation / Coverage dashboards.
 
 Run with the server already running (see backend/api.py), then:
@@ -61,7 +61,7 @@ def get_sealed(num_rows: int) -> dict:
 def _require_server():
     if not api.server_reachable():
         pytest.exit(
-            f"Server not reachable at {api.API_URL} — start it first "
+            f"Server not reachable at {api.API_URL}: start it first "
             f"(uvicorn backend.api:app --host 127.0.0.1 --port 8000).",
             returncode=1,
         )
@@ -70,7 +70,7 @@ def _require_server():
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 1. Size sweep — clean seal + verify at every size (9 cases)
+# 1. Size sweep, clean seal + verify at every size (9 cases)
 # ═══════════════════════════════════════════════════════════════════════
 
 @pytest.mark.parametrize("num_rows", SIZE_SWEEP)
@@ -90,7 +90,7 @@ def test_clean_seal_and_verify(num_rows):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 2. Field-level tamper matrix — 3 core sizes x 7 tamper types (20 cases)
+# 2. Field-level tamper matrix, 3 core sizes x 7 tamper types (20 cases)
 # ═══════════════════════════════════════════════════════════════════════
 
 @pytest.mark.parametrize("num_rows", CORE_SIZES)
@@ -165,7 +165,7 @@ def test_tampered_instrument(num_rows):
 def test_missing_field_status(num_rows):
     sealed = get_sealed(num_rows)
     # Break the proof/document correspondence for one field so it can
-    # never be found in stored_hashes — this is the only way to reach the
+    # never be found in stored_hashes: this is the only way to reach the
     # MISSING branch (a removed XML tag just re-parses as 'N/A', which is
     # a value change, not an absent field name).
     tampered_zip = api.remove_proof_field(sealed["zip_bytes"], "instrument_model")
@@ -240,7 +240,7 @@ def test_corrupted_ots():
 
     body = api.verify(corrupted_zip, api.PASSWORD, test_scenario="corrupted_ots")["json"]
 
-    # Signature + root are untouched — only the blockchain proof is broken.
+    # Signature + root are untouched, only the blockchain proof is broken.
     assert body["signature_valid"] is True
     assert body["root_matches"] is True
     assert body["timestamp"]["status"] != "confirmed"

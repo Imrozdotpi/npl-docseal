@@ -1,4 +1,4 @@
-// NPL DocSeal — Audit Dashboard (Tab 3)
+// NPL DocSeal: Audit Dashboard (Tab 3)
 // Handles sub-tab switching, 3s polling while the Audit tab is visible,
 // and all Chart.js rendering for the 4 audit sub-panels.
 

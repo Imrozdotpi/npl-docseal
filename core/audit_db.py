@@ -1,5 +1,5 @@
 """
-audit_db.py — SQLite-backed audit logging for NPL DocSeal.
+audit_db.py: SQLite-backed audit logging for NPL DocSeal.
 
 Logs every real /api/seal and /api/verify operation for the Audit Log
 dashboard (Tab 3). Uses only the stdlib sqlite3 module.
@@ -131,7 +131,7 @@ def get_all_operations(limit: int = 500) -> list[dict]:
 
 
 def get_operations_since(timestamp_iso: str) -> list[dict]:
-    """For polling — returns rows with timestamp > given value, oldest first."""
+    """For polling: returns rows with timestamp > given value, oldest first."""
     conn = _connect()
     try:
         cur = conn.execute(

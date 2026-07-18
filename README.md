@@ -10,19 +10,19 @@ vanilla JS dashboard.
 
 ## What it does
 
-- **Seal** — parses a calibration certificate XML, builds a Merkle tree over
+- **Seal**: parses a calibration certificate XML, builds a Merkle tree over
   its fields, signs the root with RSA-4096, encrypts the original document
   with AES-256-GCM, anchors the root to Ethereum Sepolia, and packages
   everything into a single ZIP.
-- **Verify & Recover** — decrypts a sealed ZIP, rebuilds the Merkle tree from
+- **Verify & Recover**: decrypts a sealed ZIP, rebuilds the Merkle tree from
   the recovered document, and reports field-by-field which values are
-  `INTACT`, `TAMPERED`, or `MISSING` relative to what was originally sealed —
+  `INTACT`, `TAMPERED`, or `MISSING` relative to what was originally sealed:
   not just an overall pass/fail.
-- **Audit Log dashboard** — every real seal/verify call is logged to a local
+- **Audit Log dashboard**: every real seal/verify call is logged to a local
   SQLite database and surfaced as a live dashboard: performance timing
   broken down per pipeline step, tamper-frequency by field, a test-coverage
   matrix, and the blockchain anchor log.
-- **Certificate preview** — renders the actual calibration certificate as a
+- **Certificate preview**: renders the actual calibration certificate as a
   branded PDF (via ReportLab) directly in the Seal/Verify tabs.
 
 ## Project layout
@@ -69,29 +69,29 @@ Then open `http://127.0.0.1:8000`.
 ```bash
 pip install -r requirements-dev.txt
 
-# Fast, no network — hasher/merkle/signer logic
+# Fast, no network: hasher/merkle/signer logic
 pytest tests/test_hasher.py tests/test_merkle.py tests/test_signer.py tests/test_signer_v2.py -v
 
-# Full pipeline — needs the server running (above) first; makes real
+# Full pipeline: needs the server running (above) first; makes real
 # RSA/AES/blockchain calls, no mocking. Takes several minutes.
 pytest tests/test_comprehensive_suite.py -v
 ```
 
 CI runs the fast tier on every push/PR. The full live/blockchain tier is
-manual-dispatch only (see `.github/workflows/test.yml`) — it's slow, costs
+manual-dispatch only (see `.github/workflows/test.yml`): it's slow, costs
 real Sepolia testnet gas per run, and isn't meant to gate every merge.
 
 ## Deployment
 
-_Docker + live deployment instructions go here — in progress._
+_Docker + live deployment instructions go here: in progress._
 
 ## Known limitations / non-goals
 
-- No authentication or user accounts — anyone with network access to the
+- No authentication or user accounts: anyone with network access to the
   API can call any endpoint, including the audit log and (once added)
   revocation. Fine for this project's current scope; would need addressing
   before any real production use.
-- The audit log is SQLite, sufficient at this scale — not intended to
+- The audit log is SQLite: sufficient at this scale, not intended to
   migrate to a heavier database.
-- All blockchain anchoring targets Ethereum **Sepolia** (testnet) only —
+- All blockchain anchoring targets Ethereum **Sepolia** (testnet) only;
   never mainnet.

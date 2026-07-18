@@ -1,5 +1,5 @@
 """
-timestamper.py — Ethereum Sepolia blockchain timestamping
+timestamper.py: Ethereum Sepolia blockchain timestamping
 
 Replaces the OpenTimestamps/WSL implementation.
 Anchors the Merkle root hash to Ethereum Sepolia testnet.
@@ -7,9 +7,9 @@ Confirmation time: ~12 seconds (vs ~1 hour for Bitcoin).
 No WSL, no subprocess, works natively on Windows/Linux/Mac.
 
 Environment variables required:
-    SEPOLIA_RPC_URL      — Alchemy Sepolia HTTPS endpoint
-    SEPOLIA_PRIVATE_KEY  — wallet private key (hex, with 0x prefix)
-    SEPOLIA_WALLET       — wallet address (0x...)
+    SEPOLIA_RPC_URL: Alchemy Sepolia HTTPS endpoint
+    SEPOLIA_PRIVATE_KEY: wallet private key (hex, with 0x prefix)
+    SEPOLIA_WALLET: wallet address (0x...)
 """
 
 import json
@@ -68,7 +68,7 @@ def stamp_hash(hash_hex: str) -> dict:
     batch anchoring (core/batch_anchor.py) can anchor a batch root
     directly without needing a file on disk to hash first.
 
-    Returns the proof dict directly — unlike stamp_file(), this does not
+    Returns the proof dict directly. Unlike stamp_file(), this does not
     write anything to disk; callers decide whether and where to persist it.
     """
     if not PRIVATE_KEY or not WALLET:
@@ -112,7 +112,7 @@ def stamp_hash(hash_hex: str) -> dict:
     except Exception:
         block_number = None
         status       = "pending"
-        print(f"  Still pending — check Etherscan for confirmation.")
+        print(f"  Still pending, check Etherscan for confirmation.")
 
     return {
         "hash":          hash_hex,
@@ -149,7 +149,7 @@ def stamp_file(filepath: str) -> str:
 
     result = stamp_hash(file_hash)
 
-    # write proof file — same shape as before the stamp_hash() refactor
+    # write proof file, same shape as before the stamp_hash() refactor
     proof = {
         "file":          file_path.name,
         "file_hash":     result["hash"],
@@ -236,7 +236,7 @@ def verify_timestamp(ots_path: str) -> dict:
         }
 
     except Exception:
-        # network issue — fall back to saved proof status
+        # network issue, fall back to saved proof status
         return {
             "status":        proof.get("status", "pending"),
             "block_height":  proof.get("block_number"),
