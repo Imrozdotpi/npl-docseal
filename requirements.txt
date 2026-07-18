@@ -1,6 +1,6 @@
 cryptography
-opentimestamps-client
 fastapi
 uvicorn
 python-multipart
 reportlab
+web3
