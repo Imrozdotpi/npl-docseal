@@ -89,7 +89,7 @@ def stamp_file(filepath: str) -> str:
     w3 = _get_web3()
 
     checksum_wallet = w3.to_checksum_address(WALLET)
-    nonce = w3.eth.get_transaction_count(checksum_wallet)
+    nonce = w3.eth.get_transaction_count(checksum_wallet, "pending")
 
     # embed hash as transaction data
     data_hex = "0x" + file_hash
