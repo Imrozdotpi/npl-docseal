@@ -86,6 +86,27 @@ def list_revocations() -> list:
     return resp.json()
 
 
+def public_verify(xml_text: str, filename: str = "cert.xml") -> dict:
+    """POST a plain XML document to /api/public/verify - no password, no
+    ZIP, matching how a third party who only has the certificate itself
+    (not a sealing bundle) would check it."""
+    files = {"document": (filename, xml_text.encode("utf-8"), "text/xml")}
+    resp = requests.post(f"{API_URL}/api/public/verify", files=files, timeout=30)
+    return {"status_code": resp.status_code, "json": _safe_json(resp)}
+
+
+def internal_revoke(certificate_number: str, reason: str, keypass: str) -> dict:
+    """POST a revocation request to /api/internal/revoke - the
+    registry-based revocation that /api/public/verify actually checks,
+    distinct from /api/revoke (the legacy ZIP-path revocation above)."""
+    resp = requests.post(
+        f"{API_URL}/api/internal/revoke",
+        json={"certificate_number": certificate_number, "reason": reason, "keypass": keypass},
+        timeout=30,
+    )
+    return {"status_code": resp.status_code, "json": _safe_json(resp)}
+
+
 def _safe_json(resp) -> dict:
     try:
         return resp.json()

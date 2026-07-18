@@ -12,14 +12,14 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # Import core modules exactly
 from core.hasher import hash_file
-from core.signer import sign_file, verify_signature, sign_bytes, verify_bytes
+from core.signer import sign_file, verify_signature, sign_bytes, verify_bytes, get_public_key_fingerprint
 from core.encryptor import encrypt_file, decrypt_file
 from core.timestamper import stamp_file, verify_timestamp, upgrade_timestamp, CHAIN_ID
 from core.xml_parser import parse_xml
@@ -27,6 +27,7 @@ from core.merkle import build_merkle_tree, compare_trees
 from core.pdf_generator import generate_pdf
 from core import audit_db
 from core import revocation
+from core import registry_db
 from core.batch_anchor import BatchQueue
 
 app = FastAPI(
@@ -45,6 +46,7 @@ app.add_middleware(
 )
 
 audit_db.init_db()
+registry_db.init_registry_db()
 
 PRIVATE_KEY = Path("keys/private_key.pem")
 PUBLIC_KEY = Path("keys/public_key.pem")
@@ -520,6 +522,30 @@ async def seal_document(
                 _add_remaining_skipped(steps, SEAL_STEP_DEFS, 7)
                 return JSONResponse(content={"overall": "FAIL", "steps": steps})
 
+        # ── Register with the public registry ──
+        # Publishes the proof independently of the ZIP bundle, so a third
+        # party who only ever receives the plain document (the real-world
+        # case: customers forward certificates, not crypto bundles) can
+        # still be verified against it via POST /api/public/verify.
+        certificate_number = parsed.get("certificate_number")
+        if not certificate_number:
+            steps.append(_make_step("packaging", "Packaging Output ZIP", "failed", time.time(), time.time(),
+                "Cannot register with the public registry.",
+                error={"message": "XML missing certificate_number.",
+                       "suggestion": "Ensure the certificate includes a certificate number."}))
+            return JSONResponse(content={"overall": "FAIL", "steps": steps})
+
+        registry_db.register_certificate(
+            certificate_number=certificate_number,
+            merkle_root=merkle_root,
+            field_hashes=merkle_result["field_hashes"],
+            signature_hex=signature.hex(),
+            public_key_fingerprint=get_public_key_fingerprint(str(PUBLIC_KEY)),
+            tx_hash=None if batch else ots_data.get("tx_hash"),
+            block_number=None if batch else ots_data.get("block_number"),
+            etherscan_url=None if batch else ots_data.get("etherscan_url"),
+        )
+
         # ── Step 8: Packaging ──
         t8 = time.time()
         try:
@@ -594,6 +620,13 @@ async def seal_document(
             "zip_data": zip_data_base64,
             "batch_status": "queued" if batch else None,
             "batch_id": batch_id,
+            "certificate_number": certificate_number,
+            "merkle_root": merkle_root,
+            "registered": True,
+            "plain_document_ready": True,
+            "note": ("This certificate is now independently verifiable via "
+                      "/api/public/verify using only the document, no password "
+                      "or bundle required."),
             "steps": steps
         }
 
@@ -1033,6 +1066,134 @@ async def batch_status(batch_id: str):
     return record
 
 
+# ═══════════════════ PUBLIC REGISTRY-BASED VERIFICATION ═══════════════════
+# This is the entire public-facing verification surface: no password, no
+# ZIP bundle, just the plain document. The proof it's checked against was
+# published to the registry independently at seal time (see Step 8 in
+# /api/seal above): matching how documents are actually forwarded to
+# third-party auditors in practice (the plain certificate, nothing else).
+
+@app.post("/api/public/verify")
+async def public_verify(document: UploadFile = File(...)):
+    temp_dir = Path(tempfile.mkdtemp(dir="."))
+    try:
+        temp_filepath = temp_dir / Path(document.filename or "certificate.xml").name
+        with open(temp_filepath, "wb") as buffer:
+            shutil.copyfileobj(document.file, buffer)
+
+        try:
+            current_parsed = parse_xml(str(temp_filepath))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Could not parse certificate XML: {e}")
+
+        certificate_number = current_parsed.get("certificate_number")
+        if not certificate_number:
+            raise HTTPException(status_code=400, detail="Cannot identify certificate: missing certificate_number.")
+
+        entry = registry_db.lookup_certificate(certificate_number)
+        if entry is None:
+            return {
+                "found": False,
+                "overall": "UNKNOWN",
+                "message": "No NPL record exists for this certificate number.",
+            }
+
+        current_merkle = build_merkle_tree(current_parsed)
+        root_matches = current_merkle["root"] == entry["merkle_root"]
+
+        signature_bytes = bytes.fromhex(entry["signature_hex"])
+        try:
+            signature_valid = verify_bytes(bytes.fromhex(entry["merkle_root"]), signature_bytes, str(PUBLIC_KEY))
+        except ValueError:
+            signature_valid = verify_bytes(entry["merkle_root"].encode("utf-8"), signature_bytes, str(PUBLIC_KEY))
+
+        revocation_entry = registry_db.is_revoked(certificate_number)
+        is_revoked_flag = revocation_entry is not None
+
+        # Reuse compare_trees()'s field-by-field comparison exactly - it
+        # only needs a dict with "field_hashes" and "root", which the
+        # registry row provides just as well as a merkle_proof.json would.
+        stored_proof = {"field_hashes": entry["field_hashes"], "root": entry["merkle_root"]}
+        compare_result = compare_trees(stored_proof, current_parsed)
+        fields_report = compare_result["fields"]
+
+        blockchain_info = {"status": "not_anchored"}
+        if entry.get("tx_hash"):
+            temp_ots_path = temp_dir / "registry_check.ots"
+            with open(temp_ots_path, "w") as f:
+                json.dump({"tx_hash": entry["tx_hash"], "chain": "Ethereum Sepolia",
+                           "etherscan_url": entry.get("etherscan_url"),
+                           "block_number": entry.get("block_number")}, f)
+            try:
+                ts_result = verify_timestamp(str(temp_ots_path))
+                blockchain_info = {
+                    "status": ts_result.get("status", "unknown"),
+                    "block_number": ts_result.get("block_height", entry.get("block_number")),
+                    "etherscan_url": entry.get("etherscan_url"),
+                }
+            except Exception:
+                blockchain_info = {"status": "check_failed", "etherscan_url": entry.get("etherscan_url")}
+
+        overall = "PASS" if (root_matches and signature_valid and not is_revoked_flag) else "FAIL"
+
+        return {
+            "found": True,
+            "certificate_number": certificate_number,
+            "overall": overall,
+            "root_matches": root_matches,
+            "signature_valid": signature_valid,
+            "revoked": is_revoked_flag,
+            "revocation_details": revocation_entry,
+            "blockchain": blockchain_info,
+            "sealed_at": entry["sealed_at"],
+            "fields": fields_report,
+        }
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+# ═══════════════════ INTERNAL REGISTRY REVOCATION ═══════════════════
+# Distinct from POST /api/revoke (which guards the legacy ZIP-based
+# /api/verify path via core/revocation.py). This is the revocation that
+# actually matters going forward: it's what /api/public/verify checks.
+# Lives under /api/internal/ to keep a clear namespace boundary between
+# internal-only and public-facing routes: this is also where auth
+# middleware would attach in a production version of this project.
+
+class InternalRevokeRequest(BaseModel):
+    certificate_number: str
+    reason: str
+    keypass: str
+
+
+@app.post("/api/internal/revoke")
+async def internal_revoke(payload: InternalRevokeRequest):
+    if not PRIVATE_KEY.exists():
+        raise HTTPException(status_code=500, detail="Private key not found on server.")
+
+    entry = registry_db.lookup_certificate(payload.certificate_number)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="No registry entry for this certificate number.")
+
+    revoked_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    revocation_payload = f"{payload.certificate_number}:{payload.reason}:{revoked_at}"
+    digest = _hashlib.sha256(revocation_payload.encode("utf-8")).digest()
+
+    try:
+        signature = sign_bytes(digest, str(PRIVATE_KEY), payload.keypass)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Incorrect keypass: revocation not authorized.")
+
+    registry_db.mark_revoked(payload.certificate_number, payload.reason, signature.hex(), revoked_at=revoked_at)
+
+    return {
+        "certificate_number": payload.certificate_number,
+        "reason": payload.reason,
+        "revoked_at": revoked_at,
+        "revocation_signature_hex": signature.hex(),
+    }
+
+
 # ═══════════════════ PDF PREVIEW ENDPOINT ═══════════════════
 
 @app.post("/api/preview-pdf")
@@ -1111,10 +1272,30 @@ async def audit_clear(confirm: bool = Query(False)):
     return {"status": "cleared"}
 
 
-# Serve the static frontend folder
-frontend_dir = Path("frontend")
-if frontend_dir.exists():
-    app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+# Serve the two-portal static frontend. NPL staff get the full internal
+# dashboard at "/"; third-party verifiers get the minimal public checker
+# at "/verify". /shared holds the one CSS file both portals reference by
+# absolute path, since each mount is its own isolated static root and
+# can't otherwise reach across into the other's directory. Order matters:
+# the more specific mounts are registered before the "/" catch-all.
+shared_dir = Path("frontend/shared")
+if shared_dir.exists():
+    app.mount("/shared", StaticFiles(directory="frontend/shared"), name="shared")
+
+public_dir = Path("frontend/public")
+if public_dir.exists():
+    # StaticFiles(html=True) only serves index.html for the mount's root
+    # with a trailing slash ("/verify/") - "/verify" alone 404s, which is
+    # exactly what anyone typing the URL by hand would hit.
+    @app.get("/verify", include_in_schema=False)
+    async def verify_redirect():
+        return RedirectResponse(url="/verify/")
+
+    app.mount("/verify", StaticFiles(directory="frontend/public", html=True), name="public")
+
+internal_dir = Path("frontend/internal")
+if internal_dir.exists():
+    app.mount("/", StaticFiles(directory="frontend/internal", html=True), name="internal")
 
 if __name__ == "__main__":
     import uvicorn

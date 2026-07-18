@@ -83,6 +83,9 @@ function switchTab(tabId) {
     } else if (tabId === 'verify') {
         titleEl.textContent = 'Verify & Recover';
         descEl.textContent = 'Verify cryptographic authenticity and recover original documents.';
+    } else if (tabId === 'revoke') {
+        titleEl.textContent = 'Revoke';
+        descEl.textContent = 'Revoke a registered certificate by its number: this is what the public verification page actually checks.';
     } else if (tabId === 'audit') {
         titleEl.textContent = 'Audit Log';
         descEl.textContent = 'Inspect historical sealing and verification logs.';
@@ -878,6 +881,60 @@ async function confirmRevocation() {
         revokeBtn.textContent = `Revoked ${new Date(entry.revoked_at).toLocaleDateString()}`;
     } catch (err) {
         showApiError('revoke-api-error', err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Revoke Certificate';
+    }
+}
+
+// Registry-based revocation (the "Revoke" tab) - distinct from
+// confirmRevocation() above, which guards the legacy ZIP-based
+// /api/verify path via /api/revoke. This one calls /api/internal/revoke
+// and is what /api/public/verify (and the public verification page)
+// actually check.
+async function submitRegistryRevoke() {
+    const certificateNumber = document.getElementById('registry-revoke-cert-number').value.trim();
+    const reason = document.getElementById('registry-revoke-reason').value.trim();
+    const keypass = document.getElementById('registry-revoke-keypass').value;
+    hideApiError('registry-revoke-api-error');
+    document.getElementById('registry-revoke-result').classList.remove('visible');
+
+    if (!certificateNumber) { showApiError('registry-revoke-api-error', 'Please enter the certificate number to revoke.'); return; }
+    if (!reason) { showApiError('registry-revoke-api-error', 'Please enter a reason for revocation.'); return; }
+    if (!keypass) { showApiError('registry-revoke-api-error', "Please enter the Director's key passphrase."); return; }
+
+    const btn = document.getElementById('btn-registry-revoke');
+    btn.disabled = true;
+    btn.textContent = 'Revoking…';
+
+    try {
+        const res = await fetch('/api/internal/revoke', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ certificate_number: certificateNumber, reason, keypass })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Server error ${res.status}`);
+        }
+        const entry = await res.json();
+
+        const resultEl = document.getElementById('registry-revoke-result');
+        resultEl.innerHTML = `
+            <div class="summary-header">${SVG_CHECK_SM} Certificate Revoked</div>
+            <div class="summary-body">
+                <div class="stat-row"><span class="stat-label">Certificate</span><span class="stat-value">${entry.certificate_number}</span></div>
+                <div class="stat-row"><span class="stat-label">Reason</span><span class="stat-value">${entry.reason}</span></div>
+                <div class="stat-row"><span class="stat-label">Revoked At</span><span class="stat-value">${new Date(entry.revoked_at).toLocaleString()}</span></div>
+            </div>
+        `;
+        resultEl.classList.add('visible');
+
+        document.getElementById('registry-revoke-cert-number').value = '';
+        document.getElementById('registry-revoke-reason').value = '';
+        document.getElementById('registry-revoke-keypass').value = '';
+    } catch (err) {
+        showApiError('registry-revoke-api-error', err.message);
     } finally {
         btn.disabled = false;
         btn.textContent = 'Revoke Certificate';

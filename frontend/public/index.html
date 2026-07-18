@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify an NPL Certificate</title>
+    <meta name="description" content="Verify the authenticity of an NPL calibration certificate, no password or file bundle required.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/shared/style.css?v=31">
+    <link rel="stylesheet" href="style.css?v=1">
+</head>
+<body class="public-verify-body">
+    <main class="public-verify-page">
+        <header class="public-verify-header">
+            <h1>NPL Certificate Verification</h1>
+            <p class="page-desc">
+                This is a real, live check against NPL's own record of what it issued.
+                Upload the certificate XML you received: no password, no bundle, just
+                the document itself.
+            </p>
+        </header>
+
+        <div class="card input-card">
+            <div class="form-group file-field">
+                <label>Certificate Document (.xml)</label>
+                <label for="cert-upload" class="field-dropzone" id="cert-dropzone">
+                    <input type="file" id="cert-upload" accept=".xml,application/xml,text/xml" style="display: none;">
+                    <div class="field-dropzone-inner">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16">
+                            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                        <span id="cert-file-label">Upload the certificate XML</span>
+                    </div>
+                </label>
+            </div>
+
+            <div id="public-verify-api-error" class="api-error-banner"></div>
+
+            <button id="btn-public-verify" class="btn btn-primary" onclick="verifyPublicCertificate()">
+                Verify Certificate
+            </button>
+        </div>
+
+        <div id="public-verify-result"></div>
+    </main>
+
+    <script src="verify.js?v=1"></script>
+</body>
+</html>
