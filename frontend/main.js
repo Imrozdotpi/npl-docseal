@@ -542,8 +542,7 @@ function removeSealFile() {
     document.getElementById('seal-file-info').style.display = 'none';
     document.getElementById('seal-dropzone').style.display = 'flex';
     document.getElementById('btn-preview-seal').style.display = 'none';
-    document.getElementById('seal-preview-card').style.display = 'none';
-    document.getElementById('seal-preview-iframe').src = '';
+    closeModal('seal-preview-card', 'seal-preview-iframe');
     resetSealPipeline();
 }
 
@@ -576,10 +575,10 @@ function resetVerifyPipeline() {
     document.getElementById('verify-failure-banner').innerHTML = '';
     document.getElementById('verify-download-wrap').classList.remove('visible');
     document.getElementById('verify-api-error').classList.remove('visible');
-    document.getElementById('field-report-container').style.display = 'none';
+    document.getElementById('btn-field-report').style.display = 'none';
+    closeModal('field-report-modal');
     document.getElementById('btn-preview-verify').style.display = 'none';
-    document.getElementById('verify-preview-card').style.display = 'none';
-    document.getElementById('verify-preview-iframe').src = '';
+    closeModal('verify-preview-card', 'verify-preview-iframe');
     const btn = document.getElementById('btn-verify');
     btn.disabled = false;
     document.getElementById('btn-verify-text').textContent = 'Verify & Recover';
@@ -607,7 +606,7 @@ async function sealDocument() {
     // Set button to processing
     const btn = document.getElementById('btn-seal');
     btn.disabled = true;
-    document.getElementById('btn-seal-text').innerHTML = '<span class="btn-spinner"></span> Processing…';
+    document.getElementById('btn-seal-text').textContent = 'Processing…';
 
     // Reset pipeline UI
     buildPipelineUI('seal-pipeline', SEAL_STEPS);
@@ -751,14 +750,15 @@ async function verifyDocument() {
 
     const btn = document.getElementById('btn-verify');
     btn.disabled = true;
-    document.getElementById('btn-verify-text').innerHTML = '<span class="btn-spinner"></span> Processing…';
+    document.getElementById('btn-verify-text').textContent = 'Processing…';
 
     buildPipelineUI('verify-pipeline', VERIFY_STEPS);
     document.getElementById('verify-summary').classList.remove('visible');
     document.getElementById('verify-error-card').classList.remove('visible');
     document.getElementById('verify-failure-banner').classList.remove('visible');
     document.getElementById('verify-download-wrap').classList.remove('visible');
-    document.getElementById('field-report-container').style.display = 'none';
+    document.getElementById('btn-field-report').style.display = 'none';
+    closeModal('field-report-modal');
 
     // Immediately start step 0 active ticker while waiting for server response
     setStepState('verify-pipeline', 0, 'active');
@@ -919,7 +919,7 @@ function renderFieldReport(fields) {
     });
 
     document.getElementById('field-summary').textContent = `${intactCount} fields intact, ${tamperedCount} fields tampered`;
-    document.getElementById('field-report-container').style.display = 'block';
+    document.getElementById('btn-field-report').style.display = 'inline-flex';
 }
 
 // ═══════════════════ DOWNLOAD HANDLERS ═══════════════════
@@ -961,6 +961,23 @@ function flashDownloadButton(textElId, flashText, originalText) {
     setTimeout(() => { el.textContent = originalText; }, 1500);
 }
 
+// ═══════════════════ MODAL HELPERS (certificate preview + field report) ═══════════════════
+
+function openModal(overlayId) {
+    document.getElementById(overlayId).classList.add('visible');
+}
+
+function closeModal(overlayId, iframeId) {
+    document.getElementById(overlayId).classList.remove('visible');
+    if (iframeId) {
+        const iframe = document.getElementById(iframeId);
+        if (iframe && iframe.src) {
+            URL.revokeObjectURL(iframe.src);
+            iframe.src = '';
+        }
+    }
+}
+
 // ═══════════════════ CERTIFICATE PDF PREVIEW ═══════════════════
 
 async function renderCertificatePreview(xmlText, filename, cardId, iframeId, btnId, errorBannerId) {
@@ -988,7 +1005,7 @@ async function renderCertificatePreview(xmlText, filename, cardId, iframeId, btn
         const objectUrl = URL.createObjectURL(blob);
 
         document.getElementById(iframeId).src = objectUrl;
-        document.getElementById(cardId).style.display = 'flex';
+        openModal(cardId);
     } catch (err) {
         showApiError(errorBannerId, `Preview failed: ${err.message}`);
     } finally {

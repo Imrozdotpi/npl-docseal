@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=14">
+    <link rel="stylesheet" href="style.css?v=26">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -109,9 +109,16 @@
                                 <button id="btn-preview-seal" class="btn btn-reset btn-sm" style="margin-top: 10px; display: none;" onclick="previewSealCertificate()">
                                     Preview Certificate
                                 </button>
-                                <div id="seal-preview-card" class="card pdf-preview-card" style="display: none;">
-                                    <h3>Certificate Preview</h3>
-                                    <iframe id="seal-preview-iframe" class="pdf-preview-frame" title="Certificate preview"></iframe>
+                                <div id="seal-preview-card" class="modal-overlay" onclick="if (event.target === this) closeModal('seal-preview-card', 'seal-preview-iframe')">
+                                    <div class="modal-panel">
+                                        <div class="modal-header">
+                                            <h3>Certificate Preview</h3>
+                                            <button type="button" class="modal-close" onclick="closeModal('seal-preview-card', 'seal-preview-iframe')" aria-label="Close preview">×</button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <iframe id="seal-preview-iframe" class="pdf-preview-frame" title="Certificate preview"></iframe>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -209,19 +216,39 @@
                             <div id="verify-error-card" class="pipeline-error"></div>
                             <div id="verify-failure-banner" class="failure-banner"></div>
 
-                            <!-- Field integrity report -->
-                            <div id="field-report-container" class="field-report-box" style="display:none;">
-                                <h4>Field-Level Integrity Report</h4>
-                                <div id="field-report-rows"></div>
-                                <div class="field-summary" id="field-summary"></div>
+                            <!-- Field report + certificate preview triggers -->
+                            <div class="modal-trigger-row">
+                                <button id="btn-field-report" class="btn btn-reset btn-sm" style="display: none;" onclick="openModal('field-report-modal')">
+                                    Field Report
+                                </button>
+                                <button id="btn-preview-verify" class="btn btn-reset btn-sm" style="display: none;" onclick="previewVerifyCertificate()">
+                                    Preview Certificate
+                                </button>
                             </div>
 
-                            <button id="btn-preview-verify" class="btn btn-reset btn-sm" style="margin-top: 16px; display: none;" onclick="previewVerifyCertificate()">
-                                Preview Certificate
-                            </button>
-                            <div id="verify-preview-card" class="card pdf-preview-card" style="display: none;">
-                                <h3>Certificate Preview</h3>
-                                <iframe id="verify-preview-iframe" class="pdf-preview-frame" title="Certificate preview"></iframe>
+                            <div id="field-report-modal" class="modal-overlay" onclick="if (event.target === this) closeModal('field-report-modal')">
+                                <div class="modal-panel">
+                                    <div class="modal-header">
+                                        <h3>Field-Level Integrity Report</h3>
+                                        <button type="button" class="modal-close" onclick="closeModal('field-report-modal')" aria-label="Close">×</button>
+                                    </div>
+                                    <div class="modal-body modal-body-scroll">
+                                        <div id="field-report-rows"></div>
+                                        <div class="field-summary" id="field-summary"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="verify-preview-card" class="modal-overlay" onclick="if (event.target === this) closeModal('verify-preview-card', 'verify-preview-iframe')">
+                                <div class="modal-panel">
+                                    <div class="modal-header">
+                                        <h3>Certificate Preview</h3>
+                                        <button type="button" class="modal-close" onclick="closeModal('verify-preview-card', 'verify-preview-iframe')" aria-label="Close preview">×</button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <iframe id="verify-preview-iframe" class="pdf-preview-frame" title="Certificate preview"></iframe>
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- Download button -->
@@ -309,7 +336,7 @@
         </main>
     </div>
 
-    <script src="main.js?v=14"></script>
-    <script src="audit.js?v=14"></script>
+    <script src="main.js?v=17"></script>
+    <script src="audit.js?v=18"></script>
 </body>
 </html>
