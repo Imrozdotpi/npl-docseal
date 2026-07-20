@@ -134,6 +134,20 @@ body {
     font-weight: 500;
 }
 
+.portal-switch-link {
+    display: block;
+    text-align: center;
+    margin-top: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent-indigo);
+    text-decoration: none;
+}
+
+.portal-switch-link:hover {
+    text-decoration: underline;
+}
+
 .nav-menu {
     display: flex;
     flex-direction: column;

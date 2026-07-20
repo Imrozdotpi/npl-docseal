@@ -1,0 +1,83 @@
+/* Layout chrome for the landing/portal-picker page only. Design tokens,
+   fonts, and the .card look all come from /shared/style.css - this file
+   just lays out a centered header and a two-card picker grid. */
+
+body.landing-body {
+    height: auto;
+    min-height: 100vh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    display: flex;
+    justify-content: center;
+    padding: 72px 24px;
+}
+
+.landing-page {
+    width: 100%;
+    max-width: 760px;
+}
+
+.landing-header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.landing-header h1 {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+}
+
+.landing-header .page-desc {
+    font-size: 14px;
+    line-height: 1.6;
+    max-width: 520px;
+    margin: 0 auto;
+}
+
+.landing-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+@media (max-width: 640px) {
+    .landing-cards {
+        grid-template-columns: 1fr;
+    }
+}
+
+.landing-card {
+    display: block;
+    text-decoration: none;
+    padding: 28px 24px;
+    transition: var(--transition-fast);
+    border: 1px solid var(--border-color);
+}
+
+.landing-card:hover {
+    border-color: var(--accent-indigo);
+    background-color: var(--accent-indigo-light);
+}
+
+.landing-card h3 {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.landing-card .page-desc {
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+
+.landing-card-cta {
+    display: inline-block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-indigo);
+}

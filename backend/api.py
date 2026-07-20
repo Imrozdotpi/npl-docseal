@@ -1413,12 +1413,17 @@ async def audit_clear(confirm: bool = Query(False)):
     return {"status": "cleared"}
 
 
-# Serve the two-portal static frontend. NPL staff get the full internal
-# dashboard at "/"; third-party verifiers get the minimal public checker
-# at "/verify". /shared holds the one CSS file both portals reference by
+# Serve the three static frontends. "/" is a small landing page for
+# picking a portal, NPL staff get the full internal dashboard at
+# "/dashboard", third-party verifiers get the minimal public checker at
+# "/verify". /shared holds the one CSS file all three reference by
 # absolute path, since each mount is its own isolated static root and
-# can't otherwise reach across into the other's directory. Order matters:
-# the more specific mounts are registered before the "/" catch-all.
+# can't otherwise reach across into the others' directories. Order
+# matters: the more specific mounts are registered before the "/"
+# catch-all landing page.
+#
+# No login/access control on "/dashboard" yet - this is a basic version
+# to be layered with real security later (see README "Known limitations").
 shared_dir = Path("frontend/shared")
 if shared_dir.exists():
     app.mount("/shared", StaticFiles(directory="frontend/shared"), name="shared")
@@ -1436,7 +1441,15 @@ if public_dir.exists():
 
 internal_dir = Path("frontend/internal")
 if internal_dir.exists():
-    app.mount("/", StaticFiles(directory="frontend/internal", html=True), name="internal")
+    @app.get("/dashboard", include_in_schema=False)
+    async def dashboard_redirect():
+        return RedirectResponse(url="/dashboard/")
+
+    app.mount("/dashboard", StaticFiles(directory="frontend/internal", html=True), name="internal")
+
+landing_dir = Path("frontend/landing")
+if landing_dir.exists():
+    app.mount("/", StaticFiles(directory="frontend/landing", html=True), name="landing")
 
 if __name__ == "__main__":
     import uvicorn

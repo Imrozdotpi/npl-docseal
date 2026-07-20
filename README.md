@@ -64,21 +64,28 @@ the drift was caught, so they were merged into the single table
 described above: one row per certificate, written once per seal, read by
 the one verification endpoint. See `core/verification_db.py`.
 
-This splits the project into two portals sharing one backend:
+This splits the project into three static pages sharing one backend:
 
-- **Internal dashboard** (`/`, `frontend/internal/`): Seal, the legacy
-  ZIP-based Decrypt tab (internal QA only), Verify Document, and the
-  Audit Log. This is NPL's own tool, requiring the Director's key
+- **Landing page** (`/`, `frontend/landing/`): a small portal picker with
+  no functionality of its own, just two links. No login/access control on
+  any of this yet (see "Known limitations") - this is a basic version to
+  be layered with real security later.
+- **Internal dashboard** (`/dashboard`, `frontend/internal/`): Seal, the
+  legacy ZIP-based Decrypt tab (internal QA only), Verify Document, and
+  the Audit Log. This is NPL's own tool, requiring the Director's key
   passphrase for sealing.
 - **Public verification page** (`/verify`, `frontend/public/`): a single-
-  purpose checker with nothing else on it, no nav back to the internal
-  dashboard, no encryption, no passwords, no audit log. This is the link
-  meant to be shared publicly. Both this page and the internal
-  dashboard's Verify Document tab call the same `/api/public/verify`.
+  purpose checker with nothing else on it, no encryption, no passwords,
+  no audit log. This is the link meant to be shared publicly. Both this
+  page and the internal dashboard's Verify Document tab call the same
+  `/api/public/verify`.
 
-Both pages share design tokens/CSS via `/shared` (`frontend/shared/`),
-mounted as its own static route since the two portals are otherwise
-isolated static roots that can't reach into each other's directory.
+Each of the internal dashboard and public page has an "All Portals" link
+back to the landing page, so switching between them doesn't mean typing
+a new URL by hand. All three pages share design tokens/CSS via `/shared`
+(`frontend/shared/`), mounted as its own static route since each portal
+is otherwise an isolated static root that can't reach into another's
+directory.
 
 ## Project layout
 
@@ -88,9 +95,12 @@ core/                  Cryptographic + parsing modules (signer, encryptor,
                         verification_db, verification_service,
                         batch_anchor, pdf_generator)
 backend/api.py          FastAPI app - seal/verify/verification/audit/batch endpoints
-frontend/internal/      NPL's dashboard: Seal, Decrypt, Verify Document, Audit Log
-frontend/public/        Standalone public verification page (no auth, no dashboard)
-frontend/shared/        CSS shared by both portals (mounted at /shared)
+frontend/landing/       Portal picker page, served at "/"
+frontend/internal/      NPL's dashboard (served at "/dashboard"): Seal, Decrypt,
+                        Verify Document, Audit Log
+frontend/public/        Standalone public verification page, served at "/verify"
+                        (no auth, no dashboard)
+frontend/shared/        CSS shared by all three pages (mounted at /shared)
 tests/                  Unit tests (hasher/merkle/signer) + comprehensive pytest
                         suites that exercise the full pipeline against a live server
 scripts/                Data-seeding utilities for the audit dashboard, and the
@@ -130,7 +140,8 @@ VERIFICATION_DB_PATH=data/verification_registry.db
 uvicorn backend.api:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-- NPL internal dashboard: `http://127.0.0.1:8000`
+- Landing page (choose a portal): `http://127.0.0.1:8000`
+- NPL internal dashboard: `http://127.0.0.1:8000/dashboard`
 - Public verification page: `http://127.0.0.1:8000/verify`
 
 ## Testing

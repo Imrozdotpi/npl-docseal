@@ -20,6 +20,13 @@ body.public-verify-body {
     max-width: 640px;
 }
 
+.portal-switch-link-standalone {
+    display: block;
+    text-align: center;
+    margin: 0 0 20px;
+    font-size: 12px;
+}
+
 .public-verify-header {
     text-align: center;
     margin-bottom: 28px;
