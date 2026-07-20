@@ -1,24 +1,20 @@
 """
 tests/test_registry_verify.py
 
-Tests the registry-based verification architecture: core/registry_db.py,
-POST /api/public/verify, and POST /api/internal/revoke. Runs against the
-REAL live server (no mocking), same policy as the rest of this suite.
+Tests the unified certificate verification architecture:
+core/verification_db.py (data/verification_registry.db) and
+POST /api/public/verify. Runs against the REAL live server (no mocking),
+same policy as the rest of this suite.
 
 Run with the server already running (see backend/api.py), then:
     venv/Scripts/python.exe -m pytest tests/test_registry_verify.py -v
 """
 
-import hashlib
-
 import pytest
 
 from tests import api_helpers as api
 from tests.xml_generator import build_flat_xml, default_rows, DEFAULT_VALID_UNTIL
-from core import registry_db
-from core.signer import verify_bytes
-
-PUBLIC_KEY_PATH = "keys/public_key.pem"
+from core import verification_db
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -48,10 +44,13 @@ def _seal_fresh_document(tag: str) -> tuple[str, str]:
 
 def test_seal_registers_certificate():
     xml_text, cert_number = _seal_fresh_document("case1")
-    entry = registry_db.lookup_certificate(cert_number)
+    entry = verification_db.get_certificate(cert_number)
     assert entry is not None
     assert entry["certificate_number"] == cert_number
-    assert entry["revoked"] is False
+    assert entry["field_hashes"] is not None
+    assert entry["signature_hex"] is not None
+    assert entry["expiry_date"] is not None
+    assert entry["status"] == "ACTIVE"
 
 
 def test_public_verify_clean_document_passes():
@@ -89,44 +88,30 @@ def test_public_verify_unknown_certificate():
     assert body["found"] is False
 
 
-def test_revoked_certificate_fails_verification():
+def test_public_verify_expired_and_revoked():
+    """Confirms the merged registry's lifecycle fields (previously only
+    reachable via the internal-only /verification/verify) now drive the
+    same one /api/public/verify endpoint both frontends call."""
+    from datetime import datetime
+
     xml_text, cert_number = _seal_fresh_document("case5")
+    entry = verification_db.get_certificate(cert_number)
 
-    pre = api.public_verify(xml_text)
-    assert pre["json"]["overall"] == "PASS"
-
-    revoke_result = api.internal_revoke(
-        cert_number, "Calibration reading error discovered post-issuance", api.KEYPASS
+    verification_db.upsert_certificate(
+        certificate_number=cert_number, merkle_root=entry["merkle_root"],
+        field_hashes=entry["field_hashes"], signature_hex=entry["signature_hex"],
+        public_key_fingerprint=entry["public_key_fingerprint"], tx_hash=entry["tx_hash"],
+        block_number=entry["block_number"], etherscan_url=entry["etherscan_url"],
+        sealed_at=entry["sealed_at"], issue_date=entry["issue_date"],
+        expiry_date=datetime(2020, 1, 1), status="REVOKED",
     )
-    assert revoke_result["status_code"] == 200, revoke_result
 
-    # Same unmodified document: still cryptographically perfect, but must
-    # now fail because NPL has revoked it.
-    post = api.public_verify(xml_text)
-    post_body = post["json"]
-    assert post_body["overall"] == "FAIL"
-    assert post_body["signature_valid"] is True
-    assert post_body["root_matches"] is True
-    assert post_body["revoked"] is True
+    result = api.public_verify(xml_text)
+    body = result["json"]
+    assert body["overall"] == "WARNING"
+    assert body["result"] == "Certificate Authentic but Expired and Revoked"
+    assert body["is_expired"] is True
+    assert body["is_revoked"] is True
+    assert body["signature_valid"] is True
+    assert body["root_matches"] is True
 
-
-def test_revocation_requires_correct_keypass():
-    xml_text, cert_number = _seal_fresh_document("case6")
-    result = api.internal_revoke(cert_number, "Should never apply", "definitely-wrong-passphrase")
-    assert result["status_code"] == 401, result
-
-
-def test_revocation_signature_is_verifiable():
-    xml_text, cert_number = _seal_fresh_document("case7")
-    revoke_result = api.internal_revoke(cert_number, "Independently re-verified reason", api.KEYPASS)
-    assert revoke_result["status_code"] == 200, revoke_result
-    entry = revoke_result["json"]
-
-    # Reconstruct exactly what was signed and check it against the public
-    # key ourselves, bypassing is_revoked()/mark_revoked() entirely - this
-    # is what makes a revocation non-repudiable rather than just a
-    # database flag.
-    payload = f"{entry['certificate_number']}:{entry['reason']}:{entry['revoked_at']}"
-    digest = hashlib.sha256(payload.encode("utf-8")).digest()
-    signature = bytes.fromhex(entry["revocation_signature_hex"])
-    assert verify_bytes(digest, signature, PUBLIC_KEY_PATH) is True

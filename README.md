@@ -15,20 +15,24 @@ vanilla JS dashboard.
   with AES-256-GCM, anchors the root to Ethereum Sepolia, packages
   everything into a ZIP for NPL's own archival, and publishes the proof to
   a public registry keyed by certificate number.
-- **Public verification** (`/verify`): a third party uploads only the plain
-  certificate document, no password, no ZIP, and gets back an independent
-  PASS / FAIL / REVOKED verdict checked against NPL's registry. This is
-  the realistic case: customers forward plain certificates to auditors,
-  never cryptographic bundles.
-- **Verify & Recover** (internal dashboard): decrypts a sealed ZIP,
-  rebuilds the Merkle tree from the recovered document, and reports
-  field-by-field which values are `INTACT`, `TAMPERED`, or `MISSING`. Kept
-  for NPL's own internal QA against the original bundle format.
-- **Revoke**: invalidates a certificate after the fact (a bad calibration
-  reading discovered post-issuance, a compromised key, a failed audit) via
-  a Director's-key-authorized action. A revoked certificate reports
-  REVOKED to any verifier, even though it remains cryptographically valid,
-  since revocation is a business decision, not a tampering signal.
+- **Certificate verification** (`POST /api/public/verify`): a third party
+  uploads only the plain certificate document, no password, no ZIP, and
+  gets back one comprehensive report - Merkle root match, field-level
+  tamper detail, RSA signature validity, blockchain anchor status,
+  expiry, and revocation - collapsing to one of six results: Authentic,
+  Authentic but Expired, Authentic but Revoked, Authentic but Expired and
+  Revoked, Tampered, or Not Issued by NPL. This matches how certificates
+  actually get used: customers forward the plain document to auditors,
+  never a crypto bundle. The same endpoint backs **two** frontends - the
+  standalone public page (`/verify`, no login) and the internal
+  dashboard's "Verify Document" tab - so results can never disagree
+  between them. Every certificate is registered automatically the moment
+  `/api/seal` completes successfully, never a manual step, and never for
+  a seal that failed partway.
+- **Decrypt** (internal dashboard): decrypts a sealed ZIP, rebuilds the
+  Merkle tree from the recovered document, and reports field-by-field
+  which values are `INTACT`, `TAMPERED`, or `MISSING`. Kept for NPL's own
+  internal QA against the original bundle format.
 - **Audit Log dashboard**: every real seal/verify call is logged to a local
   SQLite database and surfaced as a live dashboard: performance timing
   broken down per pipeline step, tamper-frequency by field, a test-coverage
@@ -45,47 +49,53 @@ password. That doesn't match how certificates actually get used: a
 customer forwards the plain certificate to their auditor, not a crypto
 bundle.
 
-The fix: at seal time, the proof is published independently to a small
-public registry (`data/public_registry.db`, keyed by certificate number),
-in addition to the ZIP NPL keeps for its own archival. A third party can
-then verify with nothing but the document itself, hitting
-`POST /api/public/verify` with just the plain XML, no password, no
-bundled files required.
+The fix: at seal time, the proof is published independently to a
+Verification Registry (`data/verification_registry.db`, keyed by
+certificate number), in addition to the ZIP NPL keeps for its own
+archival. A third party can then verify with nothing but the document
+itself, hitting `POST /api/public/verify` with just the plain XML, no
+password, no bundled files required.
+
+This used to be two separate SQLite tables (a "public registry" holding
+crypto proof, and a leaner "verification registry" holding only expiry/
+revocation) populated by two independent calls at seal time. They
+drifted apart during development and produced an incorrect result before
+the drift was caught, so they were merged into the single table
+described above: one row per certificate, written once per seal, read by
+the one verification endpoint. See `core/verification_db.py`.
 
 This splits the project into two portals sharing one backend:
 
 - **Internal dashboard** (`/`, `frontend/internal/`): Seal, the legacy
-  ZIP-based Verify & Recover (internal QA only), Revoke, and the Audit Log.
-  This is NPL's own tool, requiring the Director's key passphrase for
-  sealing and revoking.
+  ZIP-based Decrypt tab (internal QA only), Verify Document, and the
+  Audit Log. This is NPL's own tool, requiring the Director's key
+  passphrase for sealing.
 - **Public verification page** (`/verify`, `frontend/public/`): a single-
   purpose checker with nothing else on it, no nav back to the internal
   dashboard, no encryption, no passwords, no audit log. This is the link
-  meant to be shared publicly.
+  meant to be shared publicly. Both this page and the internal
+  dashboard's Verify Document tab call the same `/api/public/verify`.
 
 Both pages share design tokens/CSS via `/shared` (`frontend/shared/`),
 mounted as its own static route since the two portals are otherwise
 isolated static roots that can't reach into each other's directory.
-
-Note there are two independent revocation mechanisms by design: the
-legacy `core/revocation.py` / `/api/revoke` guards the old ZIP-based
-`/api/verify` path, while `core/registry_db.py` / `/api/internal/revoke`
-guards the registry and is what `/api/public/verify` actually checks. They
-intentionally don't share state.
 
 ## Project layout
 
 ```
 core/                  Cryptographic + parsing modules (signer, encryptor,
                         merkle, xml_parser, timestamper, audit_db,
-                        revocation, registry_db, batch_anchor, pdf_generator)
-backend/api.py          FastAPI app - seal/verify/registry/audit/batch endpoints
-frontend/internal/      NPL's dashboard: Seal, Verify & Recover, Revoke, Audit Log
+                        verification_db, verification_service,
+                        batch_anchor, pdf_generator)
+backend/api.py          FastAPI app - seal/verify/verification/audit/batch endpoints
+frontend/internal/      NPL's dashboard: Seal, Decrypt, Verify Document, Audit Log
 frontend/public/        Standalone public verification page (no auth, no dashboard)
 frontend/shared/        CSS shared by both portals (mounted at /shared)
 tests/                  Unit tests (hasher/merkle/signer) + comprehensive pytest
                         suites that exercise the full pipeline against a live server
-scripts/                Data-seeding utilities for the audit dashboard
+scripts/                Data-seeding utilities for the audit dashboard, and the
+                        one-time public_registry.db + verification_registry.db
+                        merge (migrate_registries.py)
 cli.py                  Command-line seal/verify, independent of the web UI
 keygen.py               RSA key-pair generation (interactive or scripted)
 ```
@@ -105,6 +115,13 @@ Blockchain anchoring needs a `.env` file (not committed) with:
 SEPOLIA_RPC_URL=...
 SEPOLIA_PRIVATE_KEY=0x...
 SEPOLIA_WALLET=0x...
+```
+
+The Verification Registry's SQLite file location is also overridable via
+`.env` (optional - defaults to `data/verification_registry.db` if unset):
+
+```
+VERIFICATION_DB_PATH=data/verification_registry.db
 ```
 
 ## Running it
@@ -127,7 +144,6 @@ pytest tests/test_hasher.py tests/test_merkle.py tests/test_signer.py tests/test
 # Full pipeline: needs the server running (above) first; makes real
 # RSA/AES/blockchain calls, no mocking. Takes several minutes.
 pytest tests/test_comprehensive_suite.py -v
-pytest tests/test_revocation.py -v
 pytest tests/test_batch_anchor.py -v
 pytest tests/test_registry_verify.py -v
 ```
@@ -146,14 +162,27 @@ _Docker + live deployment instructions go here: in progress._
   and no bundled files: only the certificate document itself, matching how
   documents are actually forwarded to third-party auditors in practice.
 - No authentication or user accounts for the internal portal: anyone with
-  network access to the API can call any endpoint, including sealing,
-  revocation, and the audit log. Fine for this project's current scope;
+  network access to the API can call any endpoint, including sealing and
+  the audit log. Fine for this project's current scope;
   a real deployment would need at minimum a hardcoded admin password check
   here as a stopgap, and ideally proper auth. The `/api/internal/*` prefix
   exists specifically so it's obvious where that middleware would attach.
 - The audit log is SQLite: sufficient at this scale, not intended to
-  migrate to a heavier database. `data/public_registry.db` is kept as a
-  separate SQLite file from `data/audit_log.db` and the two are never merged.
+  migrate to a heavier database. `data/verification_registry.db` is kept
+  as its own SQLite file, separate from `data/audit_log.db`, with its own
+  SQLAlchemy engine and session; the two are never merged, and the
+  Verify Document / public verification flows never read from or write to
+  the audit log.
+- The Verification Registry (`data/verification_registry.db`) stores
+  `certificate_number`, `merkle_root`, `field_hashes`, `signature_hex`,
+  `public_key_fingerprint`, `tx_hash`, `block_number`, `etherscan_url`,
+  `sealed_at`, `issue_date`, `expiry_date`, `status`, and `created_at` -
+  not the XML content itself, so it can never substitute for the sealed
+  ZIP. There's no revoke/expire UI yet; `status` is settable today only
+  by editing the row directly (or via `core.verification_service.register_certificate`).
+  `scripts/migrate_registries.py` is the one-time migration from the
+  earlier two-table architecture; it backs up rather than deletes
+  whatever it finds.
 - Public verification only accepts XML; PDF parsing is not implemented.
 - All blockchain anchoring targets Ethereum **Sepolia** (testnet) only;
   never mainnet.

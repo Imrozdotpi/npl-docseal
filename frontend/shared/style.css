@@ -406,16 +406,6 @@ body {
     color: var(--text-muted);
 }
 
-/* ───────── Revoke trigger (single button, not a split row) ───────── */
-.revoke-trigger-row {
-    display: flex;
-    margin-top: 12px;
-}
-
-.revoke-trigger-row .btn {
-    width: auto;
-}
-
 .batch-status-note {
     display: none;
     margin-top: 12px;
@@ -1459,16 +1449,6 @@ body {
     font-style: italic;
 }
 
-/* Revoked: a distinct amber state, not the same red as tampering. A
-   revoked certificate is business-invalidated, not cryptographically
-   broken, so it must read differently at a glance. */
-.failure-banner.revoked {
-    border-left-color: var(--accent-amber);
-}
-.failure-banner.revoked .failure-header {
-    color: var(--accent-amber);
-}
-
 /* ==================================================================
    Audit Dashboard (Tab 3), sub-nav, panels, cards, coverage matrix
    ================================================================== */
@@ -1726,8 +1706,8 @@ body {
     transform: translateY(0) scale(1);
 }
 
-/* Smaller, content-height variant, for short forms like the revoke modal,
-   as opposed to the fixed-size document-preview modals. */
+/* Smaller, content-height variant, for short forms, as opposed to the
+   fixed-size document-preview modals. */
 .modal-panel-compact {
     width: min(440px, 92vw);
     height: auto;

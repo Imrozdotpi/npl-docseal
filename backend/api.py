@@ -15,7 +15,6 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 # Import core modules exactly
 from core.hasher import hash_file
@@ -26,8 +25,8 @@ from core.xml_parser import parse_xml
 from core.merkle import build_merkle_tree, compare_trees
 from core.pdf_generator import generate_pdf
 from core import audit_db
-from core import revocation
-from core import registry_db
+from core import verification_db
+from core import verification_service
 from core.batch_anchor import BatchQueue
 
 app = FastAPI(
@@ -46,7 +45,15 @@ app.add_middleware(
 )
 
 audit_db.init_db()
-registry_db.init_registry_db()
+
+try:
+    verification_db.init_verification_db()
+except Exception as e:
+    # Non-fatal: the rest of the app (Seal, Decrypt, Audit Log) must keep
+    # working even if the Verification Registry can't be initialized.
+    # /api/public/verify and the seal-time registration hook both check
+    # the registry defensively at call time, not just here.
+    print(f"[verification_registry] Failed to initialize database: {e}")
 
 PRIVATE_KEY = Path("keys/private_key.pem")
 PUBLIC_KEY = Path("keys/public_key.pem")
@@ -522,29 +529,7 @@ async def seal_document(
                 _add_remaining_skipped(steps, SEAL_STEP_DEFS, 7)
                 return JSONResponse(content={"overall": "FAIL", "steps": steps})
 
-        # ── Register with the public registry ──
-        # Publishes the proof independently of the ZIP bundle, so a third
-        # party who only ever receives the plain document (the real-world
-        # case: customers forward certificates, not crypto bundles) can
-        # still be verified against it via POST /api/public/verify.
         certificate_number = parsed.get("certificate_number")
-        if not certificate_number:
-            steps.append(_make_step("packaging", "Packaging Output ZIP", "failed", time.time(), time.time(),
-                "Cannot register with the public registry.",
-                error={"message": "XML missing certificate_number.",
-                       "suggestion": "Ensure the certificate includes a certificate number."}))
-            return JSONResponse(content={"overall": "FAIL", "steps": steps})
-
-        registry_db.register_certificate(
-            certificate_number=certificate_number,
-            merkle_root=merkle_root,
-            field_hashes=merkle_result["field_hashes"],
-            signature_hex=signature.hex(),
-            public_key_fingerprint=get_public_key_fingerprint(str(PUBLIC_KEY)),
-            tx_hash=None if batch else ots_data.get("tx_hash"),
-            block_number=None if batch else ots_data.get("block_number"),
-            etherscan_url=None if batch else ots_data.get("etherscan_url"),
-        )
 
         # ── Step 8: Packaging ──
         t8 = time.time()
@@ -592,6 +577,51 @@ async def seal_document(
             _add_remaining_skipped(steps, SEAL_STEP_DEFS, 8)
             return JSONResponse(content={"overall": "FAIL", "steps": steps})
 
+        # ── Automatic Verification Registry registration ──
+        # Only reached once every prior step (parsing, hashing, Merkle tree,
+        # RSA signature, AES encryption, timestamp/blockchain anchoring, and
+        # the sealed ZIP itself) has already completed successfully above -
+        # a failure at any earlier stage already returned before this point,
+        # so nothing is ever registered for a certificate whose sealing
+        # failed. This is the single registration call for the unified
+        # registry (data/verification_registry.db): it reuses the
+        # merkle_root, field hashes, signature, and blockchain data already
+        # computed above, and does not recompute or duplicate any
+        # cryptographic operation. A registration failure - including a
+        # missing certificate number - never invalidates the sealed
+        # output; it's surfaced as a warning only.
+        verification_registry_warning = None
+        if not certificate_number or certificate_number == "N/A":
+            verification_registry_warning = (
+                "Certificate sealed successfully, but could not be registered in the "
+                "Verification Registry: the XML has no certificate number."
+            )
+            print(f"[verification_registry] Skipping registration: {verification_registry_warning}")
+        else:
+            issue_date = (verification_service.parse_certificate_date(parsed.get("date_of_issue"))
+                          or verification_service.parse_certificate_date(parsed.get("calibration_date"))
+                          or datetime.utcnow())
+            expiry_date = verification_service.parse_certificate_date(parsed.get("valid_until"))
+
+            reg_result = verification_service.register_certificate(
+                certificate_number=certificate_number,
+                merkle_root=merkle_root,
+                field_hashes=merkle_result["field_hashes"],
+                signature_hex=signature.hex(),
+                public_key_fingerprint=get_public_key_fingerprint(str(PUBLIC_KEY)),
+                tx_hash=None if batch else ots_data.get("tx_hash"),
+                block_number=None if batch else ots_data.get("block_number"),
+                etherscan_url=None if batch else ots_data.get("etherscan_url"),
+                sealed_at=datetime.utcnow().isoformat(),
+                issue_date=issue_date,
+                expiry_date=expiry_date,
+            )
+            if not reg_result["success"]:
+                verification_registry_warning = (
+                    "Certificate sealed successfully, but Verification Registry "
+                    f"registration failed: {reg_result['error']}"
+                )
+
         # ── Step 9: Complete ──
         t9 = time.time()
         total_duration_ms = sum(s["duration_ms"] for s in steps)
@@ -622,11 +652,12 @@ async def seal_document(
             "batch_id": batch_id,
             "certificate_number": certificate_number,
             "merkle_root": merkle_root,
-            "registered": True,
+            "registered": verification_registry_warning is None,
             "plain_document_ready": True,
             "note": ("This certificate is now independently verifiable via "
                       "/api/public/verify using only the document, no password "
                       "or bundle required."),
+            "verification_registry_warning": verification_registry_warning,
             "steps": steps
         }
 
@@ -672,8 +703,6 @@ async def verify_document(
     timestamp_info = {"status": "failed", "detail": "Not checked."}
     decrypted_data_base64 = None
     overall = "FAIL"
-    is_revoked_flag = False
-    revocation_entry = None
 
     try:
         # ── Step 1: ZIP received ──
@@ -942,16 +971,8 @@ async def verify_document(
                 "fields": fields_report, "timestamp": timestamp_info,
                 "original_filename": original_filename})
 
-        # ── Revocation check ──
-        # A revoked certificate must never verify as PASS regardless of
-        # cryptographic validity: revocation is a business-level
-        # invalidation, not a tampering signal, so it's reported separately
-        # from the field/signature checks above.
-        revocation_entry = revocation.is_revoked(stored_root)
-        is_revoked_flag = revocation_entry is not None
-
         # ── Step 10: Complete ──
-        overall = "PASS" if (signature_valid and root_matches and tampered_count == 0 and not is_revoked_flag) else "FAIL"
+        overall = "PASS" if (signature_valid and root_matches and tampered_count == 0) else "FAIL"
         t10 = time.time()
         total_duration_ms = sum(s["duration_ms"] for s in steps)
 
@@ -965,8 +986,6 @@ async def verify_document(
                 issues.append("Merkle root mismatch")
             if tampered_count > 0:
                 issues.append(f"{tampered_count} field(s) tampered")
-            if is_revoked_flag:
-                issues.append("certificate revoked")
             complete_summary = f"Verification completed with issues: {', '.join(issues)}."
 
         steps.append(_make_step("complete", "Verification Complete", "completed", t10, t10 + 0.001,
@@ -986,8 +1005,6 @@ async def verify_document(
             "overall": overall,
             "signature_valid": signature_valid,
             "root_matches": root_matches,
-            "revoked": is_revoked_flag,
-            "revocation_details": revocation_entry,
             "stored_root": stored_root,
             "certificate_number": current_parsed.get("certificate_number", "N/A"),
             "timestamp": timestamp_info,
@@ -1012,45 +1029,6 @@ async def verify_document(
                 pass
 
 
-# ═══════════════════ REVOCATION ENDPOINTS ═══════════════════
-
-class RevokeRequest(BaseModel):
-    merkle_root: str
-    certificate_number: str
-    reason: str
-    keypass: str
-
-
-@app.post("/api/revoke")
-async def revoke_certificate_endpoint(payload: RevokeRequest):
-    """
-    Revoke a previously sealed certificate by its Merkle root. Requires the
-    Director's private key passphrase: this is what authorizes the action,
-    not just knowledge of the merkle_root/certificate_number (those are
-    public information found inside any sealed package).
-    """
-    if not PRIVATE_KEY.exists():
-        raise HTTPException(status_code=500, detail="Private key not found on server.")
-
-    try:
-        entry = revocation.revoke_certificate(
-            merkle_root=payload.merkle_root,
-            certificate_number=payload.certificate_number,
-            reason=payload.reason,
-            private_key_path=str(PRIVATE_KEY),
-            keypass=payload.keypass,
-        )
-    except Exception:
-        raise HTTPException(status_code=401, detail="Incorrect keypass: revocation not authorized.")
-
-    return entry
-
-
-@app.get("/api/revocations")
-async def get_revocations():
-    return revocation.list_all_revocations()
-
-
 # ═══════════════════ BATCH ANCHOR STATUS ═══════════════════
 
 @app.get("/api/batch/status/{batch_id}")
@@ -1066,57 +1044,209 @@ async def batch_status(batch_id: str):
     return record
 
 
-# ═══════════════════ PUBLIC REGISTRY-BASED VERIFICATION ═══════════════════
-# This is the entire public-facing verification surface: no password, no
-# ZIP bundle, just the plain document. The proof it's checked against was
-# published to the registry independently at seal time (see Step 8 in
-# /api/seal above): matching how documents are actually forwarded to
-# third-party auditors in practice (the plain certificate, nothing else).
+# ═══════════════════ CERTIFICATE VERIFICATION (THIRD PARTY) ═══════════════════
+# The single, comprehensive verification endpoint: no password, no ZIP
+# bundle, just the plain XML certificate. Called by both the standalone
+# public page (/verify, no login) and the internal dashboard's Verify
+# Document tab - one backend, one Verification Registry
+# (core/verification_db.py, data/verification_registry.db), so the two
+# frontends can never disagree. Runs every check in one pass: Merkle root
+# match, field-level tamper detail, RSA signature, blockchain anchor
+# status, expiry, and revocation - reusing parse_xml(), build_merkle_tree(),
+# compare_trees(), verify_bytes(), and verify_timestamp() exactly as
+# Seal/Decrypt do; no new parsing, hashing, signing, or comparison logic
+# is implemented here.
+
+VERIFY_CERT_STEP_DEFS = [
+    ("file_received", "File Received"),
+    ("xml_parsing", "Parsing XML Fields"),
+    ("field_hashing", "Computing Field Hashes"),
+    ("merkle_tree", "Generating Merkle Root"),
+    ("registry_lookup", "Searching Verification Registry"),
+    ("integrity_check", "Comparing Merkle Roots"),
+    ("signature_verify", "Verifying RSA Signature"),
+    ("blockchain_verify", "Blockchain Confirmation"),
+    ("lifecycle_check", "Checking Expiry & Revocation Status"),
+    ("complete", "Verification Complete"),
+]
+
 
 @app.post("/api/public/verify")
 async def public_verify(document: UploadFile = File(...)):
+    """
+    Accepts a plain XML certificate and returns one comprehensive
+    verification report: certificate authenticity, signature result,
+    blockchain result, tampered/not-tampered (with field-level diff),
+    expiry status, revocation status, and the overall verdict. Returns
+    step-by-step execution metadata in the same steps[] shape as
+    /api/seal and /api/verify, so any frontend can reuse the existing
+    pipeline-animation code.
+    """
+    steps = []
+    certificate_number = None
     temp_dir = Path(tempfile.mkdtemp(dir="."))
     try:
-        temp_filepath = temp_dir / Path(document.filename or "certificate.xml").name
-        with open(temp_filepath, "wb") as buffer:
-            shutil.copyfileobj(document.file, buffer)
+        # ── Step 1: File received ──
+        t1 = time.time()
+        try:
+            temp_filepath = temp_dir / Path(document.filename or "certificate.xml").name
+            with open(temp_filepath, "wb") as buffer:
+                shutil.copyfileobj(document.file, buffer)
+            file_size = temp_filepath.stat().st_size
+            t1e = time.time()
+            steps.append(_make_step("file_received", "File Received", "completed", t1, t1e,
+                f"Certificate document '{temp_filepath.name}' received.",
+                {"filename": temp_filepath.name,
+                 "file_size": _fmt_size(file_size),
+                 "file_size_bytes": file_size}))
+        except Exception as e:
+            t1e = time.time()
+            steps.append(_make_step("file_received", "File Received", "failed", t1, t1e,
+                "Failed to receive uploaded file.",
+                error={"message": str(e), "suggestion": "Ensure the file is a valid XML document."}))
+            _add_remaining_skipped(steps, VERIFY_CERT_STEP_DEFS, 1)
+            return {"overall": "FAIL", "result": None, "found": None, "steps": steps}
 
+        # ── Step 2: XML parsing ──
+        t2 = time.time()
         try:
             current_parsed = parse_xml(str(temp_filepath))
+            t2e = time.time()
+            steps.append(_make_step("xml_parsing", "Parsing XML Fields", "completed", t2, t2e,
+                "Certificate fields extracted from the uploaded XML.",
+                {"certificate_number": current_parsed.get("certificate_number", "N/A"),
+                 "field_count": len(current_parsed)}))
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Could not parse certificate XML: {e}")
+            t2e = time.time()
+            steps.append(_make_step("xml_parsing", "Parsing XML Fields", "failed", t2, t2e,
+                "Invalid or malformed XML.",
+                error={"message": str(e), "suggestion": "Ensure the file is a well-formed calibration certificate XML."}))
+            _add_remaining_skipped(steps, VERIFY_CERT_STEP_DEFS, 2)
+            return {"overall": "FAIL", "result": None, "found": None, "steps": steps}
 
+        # ── Steps 3+4: Field hashing + Merkle root ──
+        t3 = time.time()
+        try:
+            current_merkle = build_merkle_tree(current_parsed)
+            t3e = time.time()
+            merkle_total = t3e - t3
+            t_hash_end = t3 + merkle_total * 0.5
+            computed_root = current_merkle["root"]
+
+            steps.append(_make_step("field_hashing", "Computing Field Hashes", "completed", t3, t_hash_end,
+                f"{len(current_merkle['field_hashes'])} SHA-256 field hashes computed.",
+                {"algorithm": "SHA-256", "hash_count": len(current_merkle["field_hashes"])}))
+            steps.append(_make_step("merkle_tree", "Generating Merkle Root", "completed", t_hash_end, t3e,
+                "Merkle root recomputed from the uploaded document.",
+                {"merkle_root": computed_root}))
+        except Exception as e:
+            t3e = time.time()
+            steps.append(_make_step("field_hashing", "Computing Field Hashes", "failed", t3, t3e,
+                "Merkle root generation failed.",
+                error={"message": str(e), "suggestion": "Verify the parsed XML data is valid."}))
+            _add_remaining_skipped(steps, VERIFY_CERT_STEP_DEFS, 3)
+            return {"overall": "FAIL", "result": None, "found": None, "steps": steps}
+
+        # ── Step 5: Registry lookup ──
         certificate_number = current_parsed.get("certificate_number")
-        if not certificate_number:
-            raise HTTPException(status_code=400, detail="Cannot identify certificate: missing certificate_number.")
+        t5 = time.time()
+        if not certificate_number or certificate_number == "N/A":
+            t5e = time.time()
+            steps.append(_make_step("registry_lookup", "Searching Verification Registry", "failed", t5, t5e,
+                "Certificate number missing from XML.",
+                error={"message": "The XML does not contain a certificate number.",
+                       "suggestion": "Ensure the certificate includes a CertificateNumber field."}))
+            _add_remaining_skipped(steps, VERIFY_CERT_STEP_DEFS, 5)
+            return {"overall": "FAIL", "result": None, "found": None, "certificate_number": None, "steps": steps}
 
-        entry = registry_db.lookup_certificate(certificate_number)
+        try:
+            entry = verification_db.get_certificate(certificate_number)
+        except verification_db.VerificationDBError as e:
+            t5e = time.time()
+            steps.append(_make_step("registry_lookup", "Searching Verification Registry", "failed", t5, t5e,
+                "Verification Registry unavailable.",
+                error={"message": str(e), "suggestion": "Try again shortly, or contact NPL if the problem persists."}))
+            _add_remaining_skipped(steps, VERIFY_CERT_STEP_DEFS, 5)
+            return {"overall": "FAIL", "result": None, "found": None,
+                    "certificate_number": certificate_number, "steps": steps}
+
         if entry is None:
+            t5e = time.time()
+            steps.append(_make_step("registry_lookup", "Searching Verification Registry", "completed", t5, t5e,
+                f"No record for certificate '{certificate_number}' in the Verification Registry.",
+                {"certificate_number": certificate_number, "found": False}))
+            _add_remaining_skipped(steps, VERIFY_CERT_STEP_DEFS, 5)
             return {
+                "overall": "FAIL",
+                "result": "Certificate Not Issued by NPL",
                 "found": False,
-                "overall": "UNKNOWN",
-                "message": "No NPL record exists for this certificate number.",
+                "certificate_number": certificate_number,
+                "steps": steps,
             }
 
-        current_merkle = build_merkle_tree(current_parsed)
-        root_matches = current_merkle["root"] == entry["merkle_root"]
+        t5e = time.time()
+        steps.append(_make_step("registry_lookup", "Searching Verification Registry", "completed", t5, t5e,
+            f"Certificate '{certificate_number}' found in the Verification Registry.",
+            {"certificate_number": certificate_number, "found": True, "status": entry["status"]}))
 
-        signature_bytes = bytes.fromhex(entry["signature_hex"])
-        try:
-            signature_valid = verify_bytes(bytes.fromhex(entry["merkle_root"]), signature_bytes, str(PUBLIC_KEY))
-        except ValueError:
-            signature_valid = verify_bytes(entry["merkle_root"].encode("utf-8"), signature_bytes, str(PUBLIC_KEY))
+        # ── Step 6: Integrity check (root match + field-level detail) ──
+        # Always runs compare_trees() when field_hashes are available - not
+        # just on a mismatch - so a clean, matching certificate still gets
+        # a full field-by-field report (every field INTACT), matching what
+        # this endpoint always returned before the merge.
+        t6 = time.time()
+        root_matches = (computed_root == entry["merkle_root"])
+        fields_report = {}
+        if entry.get("field_hashes"):
+            # Reuse compare_trees() exactly - no new comparison algorithm.
+            # field_hashes lives on this same row now (no more cross-table
+            # dependency), so there's no drift risk between what root_matches
+            # was compared against and what the field diff is computed from.
+            stored_proof = {"field_hashes": entry["field_hashes"], "root": entry["merkle_root"]}
+            compare_result = compare_trees(stored_proof, current_parsed)
+            fields_report = compare_result["fields"]
+        t6e = time.time()
+        steps.append(_make_step("integrity_check", "Comparing Merkle Roots", "completed", t6, t6e,
+            "Merkle roots match: certificate integrity verified." if root_matches
+                else "Merkle root mismatch: certificate has been tampered.",
+            {"computed_root": computed_root, "stored_root": entry["merkle_root"], "root_matches": root_matches}))
 
-        revocation_entry = registry_db.is_revoked(certificate_number)
-        is_revoked_flag = revocation_entry is not None
+        if not root_matches:
+            _add_remaining_skipped(steps, VERIFY_CERT_STEP_DEFS, 6)
+            return {
+                "overall": "FAIL",
+                "result": "Certificate Tampered",
+                "found": True,
+                "certificate_number": certificate_number,
+                "root_matches": False,
+                "computed_merkle_root": computed_root,
+                "stored_merkle_root": entry["merkle_root"],
+                "fields": fields_report,
+                "steps": steps,
+            }
 
-        # Reuse compare_trees()'s field-by-field comparison exactly - it
-        # only needs a dict with "field_hashes" and "root", which the
-        # registry row provides just as well as a merkle_proof.json would.
-        stored_proof = {"field_hashes": entry["field_hashes"], "root": entry["merkle_root"]}
-        compare_result = compare_trees(stored_proof, current_parsed)
-        fields_report = compare_result["fields"]
+        # ── Step 7: RSA signature verification ──
+        t7 = time.time()
+        signature_valid = None
+        if entry.get("signature_hex"):
+            try:
+                signature_bytes = bytes.fromhex(entry["signature_hex"])
+                try:
+                    signature_valid = verify_bytes(bytes.fromhex(entry["merkle_root"]), signature_bytes, str(PUBLIC_KEY))
+                except ValueError:
+                    signature_valid = verify_bytes(entry["merkle_root"].encode("utf-8"), signature_bytes, str(PUBLIC_KEY))
+            except Exception:
+                signature_valid = False
+        t7e = time.time()
+        steps.append(_make_step("signature_verify", "Verifying RSA Signature", "completed", t7, t7e,
+            {True: "RSA signature verified: authentic.",
+             False: "RSA signature INVALID: registry record may have been tampered.",
+             None: "No signature on record for this certificate."}[signature_valid],
+            {"signature_valid": signature_valid,
+             "key_fingerprint": entry.get("public_key_fingerprint")}))
 
+        # ── Step 8: Blockchain confirmation ──
+        t8 = time.time()
         blockchain_info = {"status": "not_anchored"}
         if entry.get("tx_hash"):
             temp_ots_path = temp_dir / "registry_check.ots"
@@ -1133,65 +1263,76 @@ async def public_verify(document: UploadFile = File(...)):
                 }
             except Exception:
                 blockchain_info = {"status": "check_failed", "etherscan_url": entry.get("etherscan_url")}
+        t8e = time.time()
+        steps.append(_make_step("blockchain_verify", "Blockchain Confirmation", "completed", t8, t8e,
+            f"Blockchain status: {blockchain_info['status']}.", blockchain_info))
 
-        overall = "PASS" if (root_matches and signature_valid and not is_revoked_flag) else "FAIL"
+        if signature_valid is False:
+            _add_remaining_skipped(steps, VERIFY_CERT_STEP_DEFS, 8)
+            return {
+                "overall": "FAIL",
+                "result": "Certificate Tampered",
+                "found": True,
+                "certificate_number": certificate_number,
+                "root_matches": True,
+                "signature_valid": False,
+                "blockchain": blockchain_info,
+                "computed_merkle_root": computed_root,
+                "stored_merkle_root": entry["merkle_root"],
+                "fields": fields_report,
+                "steps": steps,
+            }
+
+        # ── Step 9: Expiry + revocation lifecycle check ──
+        t9 = time.time()
+        now = datetime.utcnow()
+        is_expired = entry["expiry_date"] is not None and now > entry["expiry_date"]
+        is_revoked = entry["status"] == "REVOKED"
+        t9e = time.time()
+        steps.append(_make_step("lifecycle_check", "Checking Expiry & Revocation Status", "completed", t9, t9e,
+            f"Expired: {'yes' if is_expired else 'no'}. Revoked: {'yes' if is_revoked else 'no'}.",
+            {"is_expired": is_expired, "is_revoked": is_revoked,
+             "expiry_date": str(entry["expiry_date"]), "status": entry["status"]}))
+
+        # ── Step 10: Complete ──
+        result_text = verification_service.classify_result(is_expired, is_revoked)
+        overall = "PASS" if (not is_expired and not is_revoked) else "WARNING"
+        t_done = time.time()
+        steps.append(_make_step("complete", "Verification Complete", "completed", t_done, t_done + 0.001,
+            result_text, {"result": result_text, "overall": overall}))
 
         return {
+            "overall": overall,
+            "result": result_text,
             "found": True,
             "certificate_number": certificate_number,
-            "overall": overall,
-            "root_matches": root_matches,
+            "root_matches": True,
             "signature_valid": signature_valid,
-            "revoked": is_revoked_flag,
-            "revocation_details": revocation_entry,
             "blockchain": blockchain_info,
-            "sealed_at": entry["sealed_at"],
+            "computed_merkle_root": computed_root,
+            "stored_merkle_root": entry["merkle_root"],
+            "is_expired": is_expired,
+            "is_revoked": is_revoked,
+            "issue_date": entry["issue_date"].isoformat() if entry["issue_date"] else None,
+            "expiry_date": entry["expiry_date"].isoformat() if entry["expiry_date"] else None,
+            "status": entry["status"],
+            "sealed_at": entry.get("sealed_at"),
             "fields": fields_report,
+            "steps": steps,
         }
+
+    except Exception as e:
+        # Catch-all for anything unexpected, so third parties never see a
+        # raw 500 - they get the same failure-banner UX as every other
+        # error case above.
+        t_err = time.time()
+        steps.append(_make_step("complete", "Verification Complete", "failed", t_err, t_err,
+            "Unexpected server error.",
+            error={"message": str(e), "suggestion": "Try again, or contact NPL if the problem persists."}))
+        return {"overall": "FAIL", "result": None, "found": None,
+                "certificate_number": certificate_number, "steps": steps}
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-# ═══════════════════ INTERNAL REGISTRY REVOCATION ═══════════════════
-# Distinct from POST /api/revoke (which guards the legacy ZIP-based
-# /api/verify path via core/revocation.py). This is the revocation that
-# actually matters going forward: it's what /api/public/verify checks.
-# Lives under /api/internal/ to keep a clear namespace boundary between
-# internal-only and public-facing routes: this is also where auth
-# middleware would attach in a production version of this project.
-
-class InternalRevokeRequest(BaseModel):
-    certificate_number: str
-    reason: str
-    keypass: str
-
-
-@app.post("/api/internal/revoke")
-async def internal_revoke(payload: InternalRevokeRequest):
-    if not PRIVATE_KEY.exists():
-        raise HTTPException(status_code=500, detail="Private key not found on server.")
-
-    entry = registry_db.lookup_certificate(payload.certificate_number)
-    if entry is None:
-        raise HTTPException(status_code=404, detail="No registry entry for this certificate number.")
-
-    revoked_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    revocation_payload = f"{payload.certificate_number}:{payload.reason}:{revoked_at}"
-    digest = _hashlib.sha256(revocation_payload.encode("utf-8")).digest()
-
-    try:
-        signature = sign_bytes(digest, str(PRIVATE_KEY), payload.keypass)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Incorrect keypass: revocation not authorized.")
-
-    registry_db.mark_revoked(payload.certificate_number, payload.reason, signature.hex(), revoked_at=revoked_at)
-
-    return {
-        "certificate_number": payload.certificate_number,
-        "reason": payload.reason,
-        "revoked_at": revoked_at,
-        "revocation_signature_hex": signature.hex(),
-    }
 
 
 # ═══════════════════ PDF PREVIEW ENDPOINT ═══════════════════

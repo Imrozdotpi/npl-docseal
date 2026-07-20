@@ -19,6 +19,9 @@ let verifyRunning = false;
 let sealAnchorMode = 'immediate'; // 'immediate' | 'batch'
 let batchPollInterval = null;
 
+let verifydocFile = null;
+let verifydocRunning = false;
+
 // ─── SVG icons (inline strings) ───
 const SVG_CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
 const SVG_LOADER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
@@ -56,6 +59,19 @@ const VERIFY_STEPS = [
     { title: 'Verification complete', avg: 'avg ~0.1s', hasTooltip: false },
 ];
 
+const VERIFYDOC_STEPS = [
+    { title: 'File received', avg: 'avg ~0.2s', hasTooltip: false },
+    { title: 'Parsing XML fields', avg: 'avg ~0.2s', hasTooltip: false },
+    { title: 'Computing field hashes', avg: 'avg ~0.2s', hasTooltip: false },
+    { title: 'Generating Merkle root', avg: 'avg ~0.1s', hasTooltip: false },
+    { title: 'Searching Verification Registry', avg: 'avg ~0.1s', hasTooltip: false },
+    { title: 'Comparing Merkle roots', avg: 'avg ~0.1s', hasTooltip: false },
+    { title: 'Verifying RSA signature', avg: 'avg ~0.2s', hasTooltip: false },
+    { title: 'Blockchain confirmation', avg: 'avg ~1s', hasTooltip: false },
+    { title: 'Checking expiry & revocation status', avg: 'avg ~0.1s', hasTooltip: false },
+    { title: 'Verification complete', avg: 'avg ~0.1s', hasTooltip: false },
+];
+
 // ═══════════════════ INITIALIZATION ═══════════════════
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -63,6 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadAuditLogs();
     buildPipelineUI('seal-pipeline', SEAL_STEPS);
     buildPipelineUI('verify-pipeline', VERIFY_STEPS);
+    buildPipelineUI('verifydoc-pipeline', VERIFYDOC_STEPS);
 });
 
 // ═══════════════════ TAB SWITCHING ═══════════════════
@@ -81,11 +98,11 @@ function switchTab(tabId) {
         titleEl.textContent = 'Seal Document';
         descEl.textContent = 'Encrypt, digitally sign, and timestamp XML documents.';
     } else if (tabId === 'verify') {
-        titleEl.textContent = 'Verify & Recover';
+        titleEl.textContent = 'Decrypt';
         descEl.textContent = 'Verify cryptographic authenticity and recover original documents.';
-    } else if (tabId === 'revoke') {
-        titleEl.textContent = 'Revoke';
-        descEl.textContent = 'Revoke a registered certificate by its number: this is what the public verification page actually checks.';
+    } else if (tabId === 'verifydoc') {
+        titleEl.textContent = 'Verify Document';
+        descEl.textContent = 'Verify a third-party XML calibration certificate against the Verification Registry — no password or bundle required.';
     } else if (tabId === 'audit') {
         titleEl.textContent = 'Audit Log';
         descEl.textContent = 'Inspect historical sealing and verification logs.';
@@ -404,27 +421,6 @@ function showFailureBanner(elementId, failedStep) {
     el.classList.add('visible');
 }
 
-function showRevokedBanner(elementId, details) {
-    const el = document.getElementById(elementId);
-    if (!el) return;
-
-    const reason = (details && details.reason) || 'No reason given.';
-    const revokedAt = details && details.revoked_at ? new Date(details.revoked_at).toLocaleString() : 'Unknown';
-    const revokedBy = (details && details.revoked_by) || 'Unknown';
-
-    el.innerHTML = `
-        <div class="failure-header">${SVG_ALERT} ⚠ Certificate Revoked</div>
-        <div class="failure-body">
-            <div class="fb-row"><span class="fb-label">Reason</span><span class="fb-value">${reason}</span></div>
-            <div class="fb-row"><span class="fb-label">Revoked At</span><span class="fb-value">${revokedAt}</span></div>
-            <div class="fb-row"><span class="fb-label">Revoked By</span><span class="fb-value">${revokedBy}</span></div>
-        </div>
-        <div class="failure-footer">This certificate is cryptographically valid but has since been invalidated by a business decision, not a tampering signal.</div>
-    `;
-    el.classList.add('revoked');
-    el.classList.add('visible');
-}
-
 // ═══════════════════ DRAG & DROP & SMART VALIDATION ═══════════════════
 
 function showDropzoneWarning(dropzone, message) {
@@ -496,6 +492,30 @@ function setupDragAndDrop() {
     setupFieldDropzone('zip-dropzone', 'zip-upload', '.zip', (file) => {
         verifyZipFile = file;
         document.getElementById('zip-file-label').textContent = file.name;
+    });
+
+    const verifydocDropzone = document.getElementById('verifydoc-dropzone');
+    const verifydocUpload = document.getElementById('verifydoc-upload');
+
+    setupDropzoneListeners(verifydocDropzone, verifydocUpload, (file) => {
+        if (isAllowedSealFile(file)) {
+            verifydocFile = file;
+            displayVerifydocFileInfo(file);
+        } else {
+            showDropzoneWarning(verifydocDropzone, '⚠ Invalid format: Only .XML DCC calibration documents supported.');
+        }
+    }, '.xml');
+
+    verifydocUpload.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            const file = e.target.files[0];
+            if (isAllowedSealFile(file)) {
+                verifydocFile = file;
+                displayVerifydocFileInfo(file);
+            } else {
+                showDropzoneWarning(verifydocDropzone, '⚠ Invalid format: Only .XML DCC calibration documents supported.');
+            }
+        }
     });
 }
 
@@ -608,7 +628,6 @@ function resetVerifyPipeline() {
     document.getElementById('verify-error-card').classList.remove('visible');
     document.getElementById('verify-error-card').innerHTML = '';
     document.getElementById('verify-failure-banner').classList.remove('visible');
-    document.getElementById('verify-failure-banner').classList.remove('revoked');
     document.getElementById('verify-failure-banner').innerHTML = '';
     document.getElementById('verify-download-wrap').classList.remove('visible');
     document.getElementById('verify-api-error').classList.remove('visible');
@@ -616,18 +635,9 @@ function resetVerifyPipeline() {
     closeModal('field-report-modal');
     document.getElementById('btn-preview-verify').style.display = 'none';
     closeModal('verify-preview-card', 'verify-preview-iframe');
-    document.getElementById('verify-revoke-trigger-row').style.display = 'none';
-    const revokeBtn = document.getElementById('btn-revoke-verify');
-    revokeBtn.disabled = false;
-    revokeBtn.textContent = 'Revoke this Certificate';
-    document.getElementById('revoke-reason').value = '';
-    document.getElementById('revoke-keypass').value = '';
-    closeModal('revoke-modal');
-    window._revokeCandidateRoot = null;
-    window._revokeCandidateCertNumber = null;
     const btn = document.getElementById('btn-verify');
     btn.disabled = false;
-    document.getElementById('btn-verify-text').textContent = 'Verify & Recover';
+    document.getElementById('btn-verify-text').textContent = 'Decrypt';
     btn.classList.remove('btn-reset');
     btn.classList.add('btn-primary');
     btn.onclick = verifyDocument;
@@ -840,107 +850,6 @@ function stopBatchStatusPolling() {
     }
 }
 
-// ═══════════════════ REVOCATION ═══════════════════
-
-async function confirmRevocation() {
-    const reason = document.getElementById('revoke-reason').value.trim();
-    const keypass = document.getElementById('revoke-keypass').value;
-    hideApiError('revoke-api-error');
-
-    if (!window._revokeCandidateRoot) { showApiError('revoke-api-error', 'No certificate selected to revoke.'); return; }
-    if (!reason) { showApiError('revoke-api-error', 'Please enter a reason for revocation.'); return; }
-    if (!keypass) { showApiError('revoke-api-error', "Please enter the Director's key passphrase."); return; }
-
-    const btn = document.getElementById('btn-confirm-revoke');
-    btn.disabled = true;
-    btn.textContent = 'Revoking…';
-
-    try {
-        const res = await fetch('/api/revoke', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                merkle_root: window._revokeCandidateRoot,
-                certificate_number: window._revokeCandidateCertNumber || 'N/A',
-                reason,
-                keypass
-            })
-        });
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.detail || `Server error ${res.status}`);
-        }
-        const entry = await res.json();
-
-        closeModal('revoke-modal');
-        // Disable and relabel the button in place rather than replacing the
-        // row's HTML, so it's still a real button (not destroyed) the next
-        // time this row needs to show up for a different verify result.
-        const revokeBtn = document.getElementById('btn-revoke-verify');
-        revokeBtn.disabled = true;
-        revokeBtn.textContent = `Revoked ${new Date(entry.revoked_at).toLocaleDateString()}`;
-    } catch (err) {
-        showApiError('revoke-api-error', err.message);
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Revoke Certificate';
-    }
-}
-
-// Registry-based revocation (the "Revoke" tab) - distinct from
-// confirmRevocation() above, which guards the legacy ZIP-based
-// /api/verify path via /api/revoke. This one calls /api/internal/revoke
-// and is what /api/public/verify (and the public verification page)
-// actually check.
-async function submitRegistryRevoke() {
-    const certificateNumber = document.getElementById('registry-revoke-cert-number').value.trim();
-    const reason = document.getElementById('registry-revoke-reason').value.trim();
-    const keypass = document.getElementById('registry-revoke-keypass').value;
-    hideApiError('registry-revoke-api-error');
-    document.getElementById('registry-revoke-result').classList.remove('visible');
-
-    if (!certificateNumber) { showApiError('registry-revoke-api-error', 'Please enter the certificate number to revoke.'); return; }
-    if (!reason) { showApiError('registry-revoke-api-error', 'Please enter a reason for revocation.'); return; }
-    if (!keypass) { showApiError('registry-revoke-api-error', "Please enter the Director's key passphrase."); return; }
-
-    const btn = document.getElementById('btn-registry-revoke');
-    btn.disabled = true;
-    btn.textContent = 'Revoking…';
-
-    try {
-        const res = await fetch('/api/internal/revoke', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ certificate_number: certificateNumber, reason, keypass })
-        });
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.detail || `Server error ${res.status}`);
-        }
-        const entry = await res.json();
-
-        const resultEl = document.getElementById('registry-revoke-result');
-        resultEl.innerHTML = `
-            <div class="summary-header">${SVG_CHECK_SM} Certificate Revoked</div>
-            <div class="summary-body">
-                <div class="stat-row"><span class="stat-label">Certificate</span><span class="stat-value">${entry.certificate_number}</span></div>
-                <div class="stat-row"><span class="stat-label">Reason</span><span class="stat-value">${entry.reason}</span></div>
-                <div class="stat-row"><span class="stat-label">Revoked At</span><span class="stat-value">${new Date(entry.revoked_at).toLocaleString()}</span></div>
-            </div>
-        `;
-        resultEl.classList.add('visible');
-
-        document.getElementById('registry-revoke-cert-number').value = '';
-        document.getElementById('registry-revoke-reason').value = '';
-        document.getElementById('registry-revoke-keypass').value = '';
-    } catch (err) {
-        showApiError('registry-revoke-api-error', err.message);
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Revoke Certificate';
-    }
-}
-
 // ═══════════════════ VERIFY DOCUMENT ═══════════════════
 
 async function verifyDocument() {
@@ -961,13 +870,9 @@ async function verifyDocument() {
     document.getElementById('verify-summary').classList.remove('visible');
     document.getElementById('verify-error-card').classList.remove('visible');
     document.getElementById('verify-failure-banner').classList.remove('visible');
-    document.getElementById('verify-failure-banner').classList.remove('revoked');
     document.getElementById('verify-download-wrap').classList.remove('visible');
     document.getElementById('btn-field-report').style.display = 'none';
     closeModal('field-report-modal');
-    document.getElementById('verify-revoke-trigger-row').style.display = 'none';
-    document.getElementById('btn-revoke-verify').disabled = false;
-    document.getElementById('btn-revoke-verify').textContent = 'Revoke this Certificate';
 
     // Immediately start step 0 active ticker while waiting for server response
     setStepState('verify-pipeline', 0, 'active');
@@ -995,29 +900,12 @@ async function verifyDocument() {
             // Find the failed step
             const failedStep = (apiResult.steps || []).find(s => s.status === 'failed');
 
-            if (apiResult.revoked) {
-                // Revocation is a business-level invalidation, not a
-                // cryptographic failure: the pipeline itself completed
-                // cleanly, so there's no failedStep to point at.
-                showRevokedBanner('verify-failure-banner', apiResult.revocation_details);
-            } else if (failedStep) {
+            if (failedStep) {
                 showFailureBanner('verify-failure-banner', failedStep);
             }
 
             // Show field report if available
             renderFieldReport(apiResult.fields);
-
-            // Offer revocation only once decryption succeeded AND the field
-            // integrity check actually found tampering, not for any other
-            // failure reason (wrong password, corrupted signature, etc.),
-            // and not for an already-revoked certificate.
-            const hasTamperedField = Object.values(apiResult.fields || {}).some(f => f.status === 'TAMPERED');
-            if (hasTamperedField && apiResult.stored_root && !apiResult.revoked) {
-                window._revokeCandidateRoot = apiResult.stored_root;
-                window._revokeCandidateCertNumber = apiResult.certificate_number || 'N/A';
-                document.getElementById('revoke-modal-root').textContent = apiResult.stored_root.slice(0, 16) + '…';
-                document.getElementById('verify-revoke-trigger-row').style.display = 'flex';
-            }
 
             addAuditRecord(verifyZipFile.name, apiResult.root_matches ? 'Root verified' : 'Root mismatch', 'TAMPERED', 'danger');
 
@@ -1249,6 +1137,238 @@ async function previewVerifyCertificate() {
     if (!recoveredData) return;
     const xmlText = window.atob(recoveredData);
     renderCertificatePreview(xmlText, recoveredFilename, 'verify-preview-card', 'verify-preview-iframe', 'btn-preview-verify', 'verify-api-error');
+}
+
+// ═══════════════════ VERIFY DOCUMENT (THIRD PARTY) ═══════════════════
+
+function displayVerifydocFileInfo(file) {
+    document.getElementById('verifydoc-dropzone').style.display = 'none';
+    const infoBox = document.getElementById('verifydoc-file-info');
+    infoBox.style.display = 'flex';
+    infoBox.querySelector('.file-name-text').textContent = file.name;
+    document.getElementById('verifydoc-file-size').textContent = (file.size / 1024).toFixed(1) + ' KB';
+}
+
+function removeVerifydocFile() {
+    verifydocFile = null;
+    document.getElementById('verifydoc-upload').value = '';
+    document.getElementById('verifydoc-file-info').style.display = 'none';
+    document.getElementById('verifydoc-dropzone').style.display = 'flex';
+    resetVerifydocPipeline();
+}
+
+function resetVerifydocPipeline() {
+    buildPipelineUI('verifydoc-pipeline', VERIFYDOC_STEPS);
+    document.getElementById('verifydoc-summary').classList.remove('visible');
+    document.getElementById('verifydoc-summary').innerHTML = '';
+    document.getElementById('verifydoc-failure-banner').classList.remove('visible');
+    document.getElementById('verifydoc-failure-banner').innerHTML = '';
+    document.getElementById('verifydoc-detail-box').style.display = 'none';
+    document.getElementById('verifydoc-detail-rows').innerHTML = '';
+    document.getElementById('btn-verifydoc-field-report').style.display = 'none';
+    closeModal('verifydoc-field-report-modal');
+    document.getElementById('verifydoc-api-error').classList.remove('visible');
+    const btn = document.getElementById('btn-verifydoc');
+    btn.disabled = false;
+    document.getElementById('btn-verifydoc-text').textContent = 'Verify Document';
+    btn.classList.remove('btn-reset');
+    btn.classList.add('btn-primary');
+    btn.onclick = verifyThirdPartyDocument;
+    verifydocRunning = false;
+}
+
+async function verifyThirdPartyDocument() {
+    if (verifydocRunning) return;
+    if (!verifydocFile) { alert('Please upload a certificate XML document first.'); return; }
+
+    verifydocRunning = true;
+    hideApiError('verifydoc-api-error');
+
+    const btn = document.getElementById('btn-verifydoc');
+    btn.disabled = true;
+    document.getElementById('btn-verifydoc-text').textContent = 'Processing…';
+
+    buildPipelineUI('verifydoc-pipeline', VERIFYDOC_STEPS);
+    document.getElementById('verifydoc-summary').classList.remove('visible');
+    document.getElementById('verifydoc-failure-banner').classList.remove('visible');
+    document.getElementById('verifydoc-detail-box').style.display = 'none';
+    document.getElementById('btn-verifydoc-field-report').style.display = 'none';
+    closeModal('verifydoc-field-report-modal');
+
+    setStepState('verifydoc-pipeline', 0, 'active');
+    startElapsedTicker('verifydoc-pipeline', 0);
+
+    const formData = new FormData();
+    formData.append('document', verifydocFile);
+
+    try {
+        const res = await fetch('/api/public/verify', { method: 'POST', body: formData });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Server error ${res.status}`);
+        }
+        const apiResult = await res.json();
+        stopElapsedTicker();
+
+        if (apiResult.steps && apiResult.steps.length > 0) {
+            await animatePipelineFromBackend('verifydoc-pipeline', apiResult.steps);
+        }
+
+        renderVerifydocDetails(apiResult);
+
+        if (apiResult.overall === 'PASS' || apiResult.overall === 'WARNING') {
+            showVerifydocSummary(apiResult);
+        } else {
+            const failedStep = (apiResult.steps || []).find(s => s.status === 'failed');
+            if (failedStep) {
+                // A genuine execution problem (malformed XML, missing
+                // certificate ID, registry unavailable, ...).
+                showFailureBanner('verifydoc-failure-banner', failedStep);
+            } else {
+                // A clean, defined outcome that isn't an execution failure:
+                // Certificate Not Issued by NPL, or Certificate Tampered.
+                showVerifydocResultBanner(apiResult);
+                if (apiResult.result === 'Certificate Tampered' && apiResult.fields && Object.keys(apiResult.fields).length > 0) {
+                    renderVerifydocFieldReport(apiResult.fields);
+                }
+            }
+        }
+
+        btn.disabled = false;
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-reset');
+        document.getElementById('btn-verifydoc-text').textContent = '↺ Reset';
+        btn.onclick = resetVerifydocPipeline;
+
+    } catch (err) {
+        stopElapsedTicker();
+        showApiError('verifydoc-api-error', err.message);
+
+        for (let i = 0; i < VERIFYDOC_STEPS.length; i++) {
+            const el = document.getElementById(`verifydoc-pipeline-step-${i}`);
+            if (el && el.classList.contains('step-active')) {
+                setStepState('verifydoc-pipeline', i, 'error');
+                break;
+            }
+        }
+
+        btn.disabled = false;
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-reset');
+        document.getElementById('btn-verifydoc-text').textContent = '↺ Try Again';
+        btn.onclick = resetVerifydocPipeline;
+    } finally {
+        verifydocRunning = false;
+    }
+}
+
+function showVerifydocSummary(apiResult) {
+    const el = document.getElementById('verifydoc-summary');
+    const sigText = apiResult.signature_valid === true ? 'Valid ✓' : apiResult.signature_valid === false ? 'Invalid ✗' : 'N/A';
+    const sigClass = apiResult.signature_valid === true ? 'green' : '';
+    const blockchainText = apiResult.blockchain ? apiResult.blockchain.status : 'N/A';
+    el.innerHTML = `
+        <div class="summary-header">${SVG_CHECK_SM} ${apiResult.result}</div>
+        <div class="summary-body">
+            <div class="stat-row"><span class="stat-label">Certificate Number</span><span class="stat-value">${apiResult.certificate_number}</span></div>
+            <div class="stat-row"><span class="stat-label">Merkle Root</span><span class="stat-value green">Matches ✓</span></div>
+            <div class="stat-row"><span class="stat-label">Signature</span><span class="stat-value ${sigClass}">${sigText}</span></div>
+            <div class="stat-row"><span class="stat-label">Blockchain</span><span class="stat-value">${blockchainText}</span></div>
+            <div class="stat-row"><span class="stat-label">Expiry</span><span class="stat-value ${apiResult.is_expired ? '' : 'green'}">${apiResult.is_expired ? 'Expired' : 'Valid'}</span></div>
+            <div class="stat-row"><span class="stat-label">Revocation</span><span class="stat-value ${apiResult.is_revoked ? '' : 'green'}">${apiResult.is_revoked ? 'Revoked' : 'Active'}</span></div>
+            <div class="stat-row"><span class="stat-label">Verdict</span><span class="stat-value ${apiResult.overall === 'PASS' ? 'green' : ''}">${apiResult.result}</span></div>
+        </div>
+    `;
+    el.classList.add('visible');
+}
+
+function showVerifydocResultBanner(apiResult) {
+    const el = document.getElementById('verifydoc-failure-banner');
+    if (!el) return;
+
+    const isTampered = apiResult.result === 'Certificate Tampered';
+    let bodyHtml = `<div class="fb-row"><span class="fb-label">Certificate Number</span><span class="fb-value">${apiResult.certificate_number || 'N/A'}</span></div>`;
+    bodyHtml += `<div class="fb-row"><span class="fb-label">Result</span><span class="fb-value">${apiResult.result || 'Unknown'}</span></div>`;
+    if (isTampered && apiResult.signature_valid === false) {
+        bodyHtml += `<div class="fb-row"><span class="fb-label">Signature</span><span class="fb-value">Invalid ✗</span></div>`;
+    }
+
+    el.innerHTML = `
+        <div class="failure-header">${SVG_ALERT} ${apiResult.result}</div>
+        <div class="failure-body">${bodyHtml}</div>
+        <div class="failure-footer">${isTampered
+            ? 'The uploaded document does not match what NPL originally sealed.'
+            : 'No NPL record exists for this certificate number.'}</div>
+    `;
+    el.classList.add('visible');
+}
+
+function renderVerifydocDetails(apiResult) {
+    const box = document.getElementById('verifydoc-detail-box');
+    const rows = document.getElementById('verifydoc-detail-rows');
+    if (!box || !rows || !apiResult.certificate_number) {
+        if (box) box.style.display = 'none';
+        return;
+    }
+
+    const sigText = apiResult.signature_valid === true ? 'Valid' : apiResult.signature_valid === false ? 'Invalid' : 'N/A';
+    const blockchainText = apiResult.blockchain ? apiResult.blockchain.status : 'N/A';
+
+    const items = [
+        ['Certificate Number', apiResult.certificate_number],
+        ['Computed Merkle Root', apiResult.computed_merkle_root ? formatCryptoChip(apiResult.computed_merkle_root, 'Computed Root') : 'N/A'],
+        ['Stored Merkle Root', apiResult.stored_merkle_root ? formatCryptoChip(apiResult.stored_merkle_root, 'Stored Root') : 'N/A'],
+        ['Signature', sigText],
+        ['Blockchain', blockchainText],
+        ['Issue Date', apiResult.issue_date ? new Date(apiResult.issue_date).toLocaleDateString() : 'N/A'],
+        ['Expiry Date', apiResult.expiry_date ? new Date(apiResult.expiry_date).toLocaleDateString() : 'N/A'],
+        ['Registry Status', apiResult.status || 'N/A'],
+    ];
+
+    rows.innerHTML = items.map(([label, value]) => `
+        <div class="field-row">
+            <span class="field-name">${label}</span>
+            <span class="field-value">${value}</span>
+        </div>
+    `).join('');
+    box.style.display = 'block';
+}
+
+function renderVerifydocFieldReport(fields) {
+    if (!fields || Object.keys(fields).length === 0) return;
+
+    const container = document.getElementById('verifydoc-field-report-rows');
+    container.innerHTML = '';
+    let intactCount = 0, tamperedCount = 0;
+
+    Object.keys(fields).forEach(fieldName => {
+        const fieldData = fields[fieldName];
+        const status = fieldData.status;
+        const value = fieldData.value || '';
+        const displayVal = value.length > 40 ? value.substring(0, 40) + '...' : value;
+
+        const row = document.createElement('div');
+        row.className = `field-row ${status === 'INTACT' ? 'field-intact-row' : 'field-tampered-row'}`;
+
+        let statusBadge = '';
+        if (status === 'INTACT') {
+            intactCount++;
+            statusBadge = '<span class="field-intact">✓ INTACT</span>';
+        } else {
+            tamperedCount++;
+            statusBadge = `<span class="field-tampered">✗ ${status}</span>`;
+        }
+
+        row.innerHTML = `
+            <span class="field-name">${fieldName}</span>
+            <span class="field-value" title="${value}">${displayVal}</span>
+            ${statusBadge}
+        `;
+        container.appendChild(row);
+    });
+
+    document.getElementById('verifydoc-field-summary').textContent = `${intactCount} fields intact, ${tamperedCount} fields tampered`;
+    document.getElementById('btn-verifydoc-field-report').style.display = 'inline-flex';
 }
 
 // ═══════════════════ HELPERS ═══════════════════
