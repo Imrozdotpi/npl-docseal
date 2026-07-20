@@ -22,6 +22,14 @@ body.landing-body {
     margin-bottom: 40px;
 }
 
+.landing-logo {
+    display: block;
+    width: 96px;
+    height: auto;
+    margin: 0 auto 20px;
+    object-fit: contain;
+}
+
 .landing-header h1 {
     font-family: var(--font-display);
     font-size: 2rem;
