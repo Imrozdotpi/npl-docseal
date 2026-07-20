@@ -33,14 +33,15 @@
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                         <path d="m9 11 2 2 4-4"/>
                     </svg>
-                    <span>Verify & Recover</span>
+                    <span>Decrypt</span>
                 </button>
-                <button id="nav-btn-revoke" class="nav-item" onclick="switchTab('revoke')">
+                <button id="nav-btn-verifydoc" class="nav-item" onclick="switchTab('verifydoc')">
                     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                        <circle cx="12" cy="12" r="10"/>
-                        <line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/>
+                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <path d="m9 15 2 2 4-4"/>
                     </svg>
-                    <span>Revoke</span>
+                    <span>Verify Document</span>
                 </button>
                 <button id="nav-btn-audit" class="nav-item" onclick="switchTab('audit')">
                     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -224,7 +225,7 @@
                                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
                                     <path d="m9 11 2 2 4-4"/>
                                 </svg>
-                                <span id="btn-verify-text">Verify & Recover</span>
+                                <span id="btn-verify-text">Decrypt</span>
                             </button>
                         </div>
 
@@ -236,40 +237,6 @@
                             <div id="verify-summary" class="pipeline-summary"></div>
                             <div id="verify-error-card" class="pipeline-error"></div>
                             <div id="verify-failure-banner" class="failure-banner"></div>
-
-                            <!-- Only shown when decryption succeeds but the field
-                                 integrity check finds at least one TAMPERED field -->
-                            <div id="verify-revoke-trigger-row" class="revoke-trigger-row" style="display: none;">
-                                <button id="btn-revoke-verify" class="btn btn-danger btn-sm" onclick="openModal('revoke-modal')">
-                                    Revoke this Certificate
-                                </button>
-                            </div>
-
-                            <div id="revoke-modal" class="modal-overlay" onclick="if (event.target === this) closeModal('revoke-modal')">
-                                <div class="modal-panel modal-panel-compact">
-                                    <div class="modal-header">
-                                        <h3>Revoke Certificate</h3>
-                                        <button type="button" class="modal-close" onclick="closeModal('revoke-modal')" aria-label="Close">×</button>
-                                    </div>
-                                    <div class="modal-body modal-body-scroll">
-                                        <p class="page-desc" style="margin-bottom: 14px;">
-                                            This marks Merkle root <span id="revoke-modal-root" class="stat-value"></span> as revoked.
-                                            Future verifications of this document will report <strong>REVOKED</strong>, not PASS,
-                                            regardless of signature or field validity.
-                                        </p>
-                                        <div class="form-group">
-                                            <label for="revoke-reason">Reason</label>
-                                            <input type="text" id="revoke-reason" placeholder="e.g. Calibration reading error discovered post-issuance">
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="revoke-keypass">Director's Key Passphrase</label>
-                                            <input type="password" id="revoke-keypass" placeholder="Authorizes this revocation">
-                                        </div>
-                                        <div id="revoke-api-error" class="api-error-banner"></div>
-                                        <button id="btn-confirm-revoke" class="btn btn-danger" onclick="confirmRevocation()">Revoke Certificate</button>
-                                    </div>
-                                </div>
-                            </div>
 
                             <!-- Field report + certificate preview triggers -->
                             <div class="modal-trigger-row">
@@ -322,33 +289,80 @@
                     </div>
                 </section>
 
-                <!-- ══════ TAB: REVOKE (registry-based) ══════ -->
-                <section id="tab-revoke" class="tab-content">
+                <!-- ══════ TAB: VERIFY DOCUMENT (THIRD PARTY) ══════ -->
+                <section id="tab-verifydoc" class="tab-content">
                     <div class="card-grid">
+                        <!-- Left: Upload -->
                         <div class="card input-card">
-                            <h3>Revoke a Certificate</h3>
-                            <p class="page-desc" style="margin-bottom: 1rem;">
-                                This is the revocation that actually matters going forward: it
-                                updates the public registry that <code>/api/public/verify</code>
-                                (and the public verification page) checks. A revoked certificate
-                                will report REVOKED to any third party, even though it remains
-                                cryptographically valid.
-                            </p>
-                            <div class="form-group">
-                                <label for="registry-revoke-cert-number">Certificate Number</label>
-                                <input type="text" id="registry-revoke-cert-number" placeholder="e.g. N25040063/D2.02/C-029">
+                            <h3>Upload Certificate</h3>
+
+                            <div class="dropzone-container">
+                                <label for="verifydoc-upload" class="dropzone" id="verifydoc-dropzone">
+                                    <input type="file" id="verifydoc-upload" accept="application/xml,.xml" style="display: none;">
+                                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                        <polyline points="17 8 12 3 7 8"/>
+                                        <line x1="12" y1="3" x2="12" y2="15"/>
+                                    </svg>
+                                    <div class="dropzone-text">
+                                        <span class="primary-text">Drop the certificate XML here</span>
+                                        <span class="secondary-text">or click to browse — no password or ZIP required</span>
+                                    </div>
+                                </label>
+                                <div id="verifydoc-file-info" class="selected-file-info" style="display: none;">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16" style="color: #16a34a; flex-shrink: 0;">
+                                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    <span class="file-name-text">filename.xml</span>
+                                    <span class="file-size-text" id="verifydoc-file-size"></span>
+                                    <button class="btn-remove-file" onclick="removeVerifydocFile()">×</button>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label for="registry-revoke-reason">Reason</label>
-                                <input type="text" id="registry-revoke-reason" placeholder="e.g. Calibration reading error discovered post-issuance">
+
+                            <div id="verifydoc-api-error" class="api-error-banner"></div>
+
+                            <button id="btn-verifydoc" class="btn btn-primary" onclick="verifyThirdPartyDocument()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16">
+                                    <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                    <path d="m9 15 2 2 4-4"/>
+                                </svg>
+                                <span id="btn-verifydoc-text">Verify Document</span>
+                            </button>
+                        </div>
+
+                        <!-- Right: Pipeline Chain -->
+                        <div class="card pipeline-card">
+                            <h3>Verification Progress</h3>
+                            <div id="verifydoc-pipeline" class="pipeline-chain"></div>
+
+                            <div id="verifydoc-summary" class="pipeline-summary"></div>
+                            <div id="verifydoc-failure-banner" class="failure-banner"></div>
+
+                            <!-- Detailed result panel -->
+                            <div id="verifydoc-detail-box" class="field-report-box" style="display:none;">
+                                <h4>Verification Details</h4>
+                                <div id="verifydoc-detail-rows"></div>
                             </div>
-                            <div class="form-group">
-                                <label for="registry-revoke-keypass">Director's Key Passphrase</label>
-                                <input type="password" id="registry-revoke-keypass" placeholder="Authorizes this revocation">
+
+                            <div class="modal-trigger-row">
+                                <button id="btn-verifydoc-field-report" class="btn btn-reset btn-sm" style="display: none;" onclick="openModal('verifydoc-field-report-modal')">
+                                    Field Report
+                                </button>
                             </div>
-                            <div id="registry-revoke-api-error" class="api-error-banner"></div>
-                            <button id="btn-registry-revoke" class="btn btn-primary" onclick="submitRegistryRevoke()">Revoke Certificate</button>
-                            <div id="registry-revoke-result" class="pipeline-summary"></div>
+
+                            <div id="verifydoc-field-report-modal" class="modal-overlay" onclick="if (event.target === this) closeModal('verifydoc-field-report-modal')">
+                                <div class="modal-panel">
+                                    <div class="modal-header">
+                                        <h3>Field-Level Integrity Report</h3>
+                                        <button type="button" class="modal-close" onclick="closeModal('verifydoc-field-report-modal')" aria-label="Close">×</button>
+                                    </div>
+                                    <div class="modal-body modal-body-scroll">
+                                        <div id="verifydoc-field-report-rows"></div>
+                                        <div class="field-summary" id="verifydoc-field-summary"></div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -360,7 +374,6 @@
                         <button class="audit-subtab" data-panel="validation" onclick="switchAuditPanel('validation')">Validation &amp; Tamper Stats</button>
                         <button class="audit-subtab" data-panel="coverage" onclick="switchAuditPanel('coverage')">Test Coverage Matrix</button>
                         <button class="audit-subtab" data-panel="blockchain" onclick="switchAuditPanel('blockchain')">Blockchain Anchor Log</button>
-                        <button class="audit-subtab" data-panel="revocations" onclick="switchAuditPanel('revocations')">Revocations</button>
                         <button class="btn btn-danger btn-sm audit-clear-btn" onclick="clearAudit()">Clear Log</button>
                     </div>
 
@@ -418,47 +431,13 @@
                         </div>
                     </div>
 
-                    <div id="audit-panel-revocations" class="audit-panel">
-                        <div class="card audit-card">
-                            <h3>Revoke a Certificate</h3>
-                            <p class="page-desc" style="margin-bottom: 1rem;">
-                                Look up any previously sealed certificate by its Merkle root and revoke it,
-                                independent of the current Seal/Verify session, for cases discovered after the fact
-                                (a bad calibration, a compromised key, a failed audit).
-                            </p>
-                            <div class="form-group">
-                                <label for="manual-revoke-root">Merkle Root</label>
-                                <input type="text" id="manual-revoke-root" placeholder="64-character hex root, e.g. from merkle_proof.json inside the sealed ZIP">
-                            </div>
-                            <div class="form-group">
-                                <label for="manual-revoke-cert-number">Certificate Number</label>
-                                <input type="text" id="manual-revoke-cert-number" placeholder="e.g. N25040063/D2.02/C-029">
-                            </div>
-                            <div class="form-group">
-                                <label for="manual-revoke-reason">Reason</label>
-                                <input type="text" id="manual-revoke-reason" placeholder="e.g. Calibration reading error discovered post-issuance">
-                            </div>
-                            <div class="form-group">
-                                <label for="manual-revoke-keypass">Director's Key Passphrase</label>
-                                <input type="password" id="manual-revoke-keypass" placeholder="Authorizes this revocation">
-                            </div>
-                            <div id="manual-revoke-api-error" class="api-error-banner"></div>
-                            <button id="btn-manual-revoke" class="btn btn-danger" style="width: auto;" onclick="submitManualRevoke()">Revoke Certificate</button>
-                        </div>
-                        <div class="card audit-card">
-                            <h3>Revocation Log</h3>
-                            <div class="table-container">
-                                <table class="audit-table" id="revocation-log-table"></table>
-                            </div>
-                        </div>
-                    </div>
                 </section>
 
             </div>
         </main>
     </div>
 
-    <script src="main.js?v=24"></script>
+    <script src="main.js?v=26"></script>
     <script src="audit.js?v=20"></script>
 </body>
 </html>
