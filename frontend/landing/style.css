@@ -45,6 +45,11 @@ body.landing-body {
     margin: 0 auto;
 }
 
+.landing-desc-indent {
+    display: inline-block;
+    padding-left: 28px;
+}
+
 .landing-cards {
     display: grid;
     grid-template-columns: 1fr 1fr;
