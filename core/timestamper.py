@@ -106,7 +106,7 @@ def stamp_hash(hash_hex: str) -> dict:
     # wait for receipt
     try:
         receipt      = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180, poll_latency=3)
-        block_number = receipt.blocknumber
+        block_number = receipt.blockNumber
         status       = "confirmed" if receipt.status == 1 else "failed"
         print(f"  Confirmed in block : {block_number}")
     except Exception:
@@ -230,7 +230,7 @@ def verify_timestamp(ots_path: str) -> dict:
         status = "confirmed" if receipt.status == 1 else "failed"
         return {
             "status":        status,
-            "block_height":  receipt.blocknumber,
+            "block_height":  receipt.blockNumber,
             "tx_hash":       tx_hash,
             "etherscan_url": etherscan,
         }
