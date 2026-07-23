@@ -34,13 +34,13 @@
             </div>
             <div class="modal-body">
                 <form id="dashboard-gate-form" class="dashboard-gate-form">
-                    <p class="page-desc">Enter the dashboard access key to continue. Not required if no
-                        access key has been configured on the server.</p>
+                    <p class="page-desc">Enter the dashboard access key to continue.</p>
                     <div class="form-group">
                         <label for="dashboard-gate-key">Access key</label>
                         <input type="password" id="dashboard-gate-key" placeholder="Enter access key" autocomplete="off">
                     </div>
-                    <button type="submit" class="btn btn-primary">Unlock</button>
+                    <div id="dashboard-gate-api-error" class="api-error-banner"></div>
+                    <button type="submit" id="dashboard-gate-submit" class="btn btn-primary">Unlock</button>
                 </form>
             </div>
         </div>
@@ -472,7 +472,7 @@
         </main>
     </div>
 
-    <script src="dashboard-auth.js?v=1"></script>
+    <script src="dashboard-auth.js?v=2"></script>
     <script src="main.js?v=27"></script>
     <script src="audit.js?v=21"></script>
 </body>
