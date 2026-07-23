@@ -93,11 +93,13 @@ directory.
 core/                  Cryptographic + parsing modules (signer, encryptor,
                         merkle, xml_parser, timestamper, audit_db,
                         verification_db, verification_service,
-                        batch_anchor, pdf_generator)
+                        batch_anchor, pdf_generator), plus startup.py
+                        (first-boot key/DB bring-up) and auth.py
+                        (dashboard access gate)
 backend/api.py          FastAPI app - seal/verify/verification/audit/batch endpoints
 frontend/landing/       Portal picker page, served at "/"
 frontend/internal/      NPL's dashboard (served at "/dashboard"): Seal, Decrypt,
-                        Verify Document, Audit Log
+                        Verify Document, Audit Log, gated by dashboard-auth.js
 frontend/public/        Standalone public verification page, served at "/verify"
                         (no auth, no dashboard)
 frontend/shared/        CSS shared by all three pages (mounted at /shared)
@@ -108,6 +110,9 @@ scripts/                Data-seeding utilities for the audit dashboard, and the
                         merge (migrate_registries.py)
 cli.py                  Command-line seal/verify, independent of the web UI
 keygen.py               RSA key-pair generation (interactive or scripted)
+Dockerfile,             Containerization: image build, local dev, and the
+docker-compose.yml,     directories/secrets deliberately excluded from the
+.dockerignore           image itself (see "Deployment")
 ```
 
 ## Setup
@@ -143,6 +148,11 @@ uvicorn backend.api:app --host 127.0.0.1 --port 8000 --reload
 - Landing page (choose a portal): `http://127.0.0.1:8000`
 - NPL internal dashboard: `http://127.0.0.1:8000/dashboard`
 - Public verification page: `http://127.0.0.1:8000/verify`
+- Health check (used by the Docker healthcheck): `http://127.0.0.1:8000/health`
+
+Set `DASHBOARD_PASSWORD` in `.env` to require an access key for sealing
+and clearing the audit log; leave it unset for open local dev (see
+"Deployment" below).
 
 ## Testing
 
@@ -165,19 +175,95 @@ real Sepolia testnet gas per run, and isn't meant to gate every merge.
 
 ## Deployment
 
-_Docker + live deployment instructions go here: in progress._
+The app is containerized so it runs identically anywhere, persists its
+databases and keys across restarts, and is safe to expose publicly.
+
+### Docker
+
+```bash
+docker build -t npl-docseal .
+docker run -p 8000:8000 \
+    -v "$(pwd)/data:/app/data" \
+    -v "$(pwd)/keys:/app/keys" \
+    -v "$(pwd)/sealed:/app/sealed" \
+    --env-file .env \
+    -e DASHBOARD_PASSWORD=your-password-here \
+    npl-docseal
+```
+
+`data/`, `keys/`, and `sealed/` are never baked into the image (see
+`.dockerignore`): on a container with no mounted volumes, `core/startup.py`
+generates a fresh demo RSA keypair (passphrase from `DEMO_KEY_PASSPHRASE`,
+defaults to `demo-passphrase-change-me`) and initializes both empty
+databases on first boot, idempotently, so restarting an already-provisioned
+container never overwrites real keys or data. `GET /health` is the
+container healthcheck endpoint.
+
+### docker-compose (local testing)
+
+```bash
+docker compose up --build
+```
+
+This bind-mounts your local `data/`, `keys/`, and `sealed/` directories, so
+it behaves exactly like the non-Dockerized setup above: same persisted
+state, same keys. To confirm persistence actually works: seal a
+certificate, restart the container (`docker compose restart`), then verify
+that same certificate via `/verify`, it should still resolve, proving the
+Verification Registry survived the restart.
+
+### Deploying to Render (or Railway)
+
+1. Push `Dockerfile`, `.dockerignore`, and all source to GitHub. Confirm
+   `.gitignore` already excludes `keys/`, `data/`, and `.env` (it does).
+2. Create a new Render Web Service, connect the GitHub repo, select
+   "Docker" as the environment.
+3. Add a persistent disk mounted at `/app/data` and `/app/keys`. Without
+   this, every redeploy wipes the registry and regenerates keys, breaking
+   verifiability of every certificate issued before that redeploy.
+4. Set environment variables in Render's dashboard: `SEPOLIA_RPC_URL`,
+   `SEPOLIA_WALLET`, `SEPOLIA_PRIVATE_KEY`, `DASHBOARD_PASSWORD`,
+   `DEMO_KEY_PASSPHRASE`.
+5. Deploy. Render builds the Docker image and exposes a public
+   `.onrender.com` URL. Its root (`/`) is already the landing page per the
+   static mount order in `backend/api.py`, so visitors land on the portal
+   picker first.
+
+### Access control on `/dashboard`
+
+Setting `DASHBOARD_PASSWORD` gates `POST /api/seal` and
+`POST /api/audit/clear` behind an `X-Dashboard-Key` header
+(`core/auth.py`); the internal dashboard prompts for this key on first
+load and stores it in `sessionStorage` (`frontend/internal/dashboard-auth.js`).
+This is explicitly a placeholder, not a real auth system: no hashing, no
+sessions, no rate limiting, just enough to stop casual public misuse of a
+live demo's real signing key and real (test) Sepolia wallet. Leaving
+`DASHBOARD_PASSWORD` unset (e.g. local dev) leaves the dashboard open, as
+before. `POST /api/public/verify` is never gated, by design.
+
+### Non-goals for this sprint
+
+- No real user account system: `DASHBOARD_PASSWORD` is one shared key, not
+  per-user accounts.
+- No HTTPS termination configuration: hosting platforms handle this
+  automatically.
+- No multi-container orchestration: SQLite files on a mounted volume are
+  sufficient at this scale, no separate DB container.
+- Real Sepolia private keys are never committed, only ever supplied via
+  `.env` (gitignored) or the hosting platform's secret store.
 
 ## Known limitations / non-goals
 
 - `POST /api/public/verify` genuinely needs no password, no authentication,
   and no bundled files: only the certificate document itself, matching how
   documents are actually forwarded to third-party auditors in practice.
-- No authentication or user accounts for the internal portal: anyone with
-  network access to the API can call any endpoint, including sealing and
-  the audit log. Fine for this project's current scope;
-  a real deployment would need at minimum a hardcoded admin password check
-  here as a stopgap, and ideally proper auth. The `/api/internal/*` prefix
-  exists specifically so it's obvious where that middleware would attach.
+- No real authentication or user accounts for the internal portal.
+  `DASHBOARD_PASSWORD` (see "Deployment" above) gates sealing and clearing
+  the audit log behind one shared key, a placeholder stopgap, not proper
+  auth: no hashing, no sessions, no rate limiting, and every other internal
+  endpoint (Decrypt, Verify Document, reading the audit log) is still
+  open to anyone with network access. Fine for this project's current
+  scope; a real deployment would need proper per-user auth.
 - The audit log is SQLite: sufficient at this scale, not intended to
   migrate to a heavier database. `data/verification_registry.db` is kept
   as its own SQLite file, separate from `data/audit_log.db`, with its own

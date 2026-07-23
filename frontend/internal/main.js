@@ -685,7 +685,7 @@ async function sealDocument() {
 
     try {
         const sealUrl = sealAnchorMode === 'batch' ? '/api/seal?batch=true' : '/api/seal';
-        const res = await fetch(sealUrl, { method: 'POST', body: formData });
+        const res = await fetch(sealUrl, { method: 'POST', body: formData, headers: dashboardAuthHeaders() });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.detail || `Server error ${res.status}`);
