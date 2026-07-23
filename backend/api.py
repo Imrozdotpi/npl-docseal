@@ -1416,6 +1416,17 @@ async def audit_clear(confirm: bool = Query(False), _auth: bool = Depends(verify
     return {"status": "cleared"}
 
 
+@app.post("/api/internal/check-access")
+async def check_dashboard_access(_auth: bool = Depends(verify_dashboard_access)):
+    """
+    No side effects: exists solely so the dashboard's access-key overlay
+    (frontend/internal/dashboard-auth.js) can validate a key against the
+    real server-side check (core/auth.py) before ever showing the
+    dashboard, instead of trusting whatever was typed client-side.
+    """
+    return {"status": "ok"}
+
+
 # Serve the three static frontends. "/" is a small landing page for
 # picking a portal, NPL staff get the full internal dashboard at
 # "/dashboard", third-party verifiers get the minimal public checker at
