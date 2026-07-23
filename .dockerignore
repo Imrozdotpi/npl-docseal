@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.env
+keys/private_key.pem
+keys/public_key.pem
+data/*.db
+sealed/*
+tests/
+*.md
+Dockerfile
+docker-compose.yml

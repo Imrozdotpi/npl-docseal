@@ -1,0 +1,15 @@
+services:
+  npl-docseal:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./keys:/app/keys
+      - ./sealed:/app/sealed
+    env_file:
+      - path: ./.env
+        required: false
+    environment:
+      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
+    restart: unless-stopped

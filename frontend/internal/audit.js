@@ -464,7 +464,7 @@ function renderBlockchainLogTable(anchored) {
 function clearAudit() {
     if (!confirm('Are you sure you want to clear all audit log data? This cannot be undone.')) return;
 
-    fetch('/api/audit/clear?confirm=true', { method: 'POST' })
+    fetch('/api/audit/clear?confirm=true', { method: 'POST', headers: dashboardAuthHeaders() })
         .then(res => {
             if (!res.ok) throw new Error('Server rejected clear request');
             return res.json();

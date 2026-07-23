@@ -11,7 +11,7 @@ import hashlib as _hashlib
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Depends
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +28,8 @@ from core import audit_db
 from core import verification_db
 from core import verification_service
 from core.batch_anchor import BatchQueue
+from core.startup import run_startup_checks
+from core.auth import verify_dashboard_access
 
 app = FastAPI(
     title="NPL DocSeal Dashboard API",
@@ -44,16 +46,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-audit_db.init_db()
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "service": "npl-docseal"}
 
-try:
-    verification_db.init_verification_db()
-except Exception as e:
-    # Non-fatal: the rest of the app (Seal, Decrypt, Audit Log) must keep
-    # working even if the Verification Registry can't be initialized.
-    # /api/public/verify and the seal-time registration hook both check
-    # the registry defensively at call time, not just here.
-    print(f"[verification_registry] Failed to initialize database: {e}")
+
+# Fresh-container bring-up: generates a demo RSA keypair and initializes
+# both SQLite databases if they don't already exist. Never overwrites
+# existing keys/data, so this is safe to run on every restart, whether
+# that's a bare `uvicorn --reload` or a container with no mounted volume.
+run_startup_checks()
 
 PRIVATE_KEY = Path("keys/private_key.pem")
 PUBLIC_KEY = Path("keys/public_key.pem")
@@ -296,7 +298,8 @@ async def seal_document(
     password: str = Form(...),
     keypass: str = Form(...),
     test_scenario: str | None = Form(None),
-    batch: bool = Query(False)
+    batch: bool = Query(False),
+    _auth: bool = Depends(verify_dashboard_access)
 ):
     """
     Seal XML document by parsing it, building a Merkle tree, signing the Merkle root,
@@ -1406,7 +1409,7 @@ async def audit_duration_series(type: str = Query("seal"), limit: int = Query(50
 
 
 @app.post("/api/audit/clear")
-async def audit_clear(confirm: bool = Query(False)):
+async def audit_clear(confirm: bool = Query(False), _auth: bool = Depends(verify_dashboard_access)):
     if not confirm:
         raise HTTPException(status_code=400, detail="Pass confirm=true to clear the audit log.")
     audit_db.clear_all_logs()

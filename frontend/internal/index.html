@@ -12,6 +12,25 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
+    <div id="dashboard-gate" class="modal-overlay visible dashboard-gate">
+        <div class="modal-panel modal-panel-compact">
+            <div class="modal-header">
+                <h3>NPL Internal Dashboard</h3>
+            </div>
+            <div class="modal-body">
+                <form id="dashboard-gate-form" class="dashboard-gate-form">
+                    <p class="page-desc">Enter the dashboard access key to continue. Not required if no
+                        access key has been configured on the server.</p>
+                    <div class="form-group">
+                        <label for="dashboard-gate-key">Access key</label>
+                        <input type="password" id="dashboard-gate-key" placeholder="Enter access key" autocomplete="off">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Unlock</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div class="app-container">
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
@@ -438,7 +457,8 @@
         </main>
     </div>
 
-    <script src="main.js?v=26"></script>
-    <script src="audit.js?v=20"></script>
+    <script src="dashboard-auth.js?v=1"></script>
+    <script src="main.js?v=27"></script>
+    <script src="audit.js?v=21"></script>
 </body>
 </html>
