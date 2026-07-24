@@ -33,10 +33,10 @@ vanilla JS dashboard.
   Merkle tree from the recovered document, and reports field-by-field
   which values are `INTACT`, `TAMPERED`, or `MISSING`. Kept for NPL's own
   internal QA against the original bundle format.
-- **Audit Log dashboard**: every real seal/verify call is logged to a local
-  SQLite database and surfaced as a live dashboard: performance timing
-  broken down per pipeline step, tamper-frequency by field, a test-coverage
-  matrix, and the blockchain anchor log.
+- **Audit Log dashboard**: every real seal/verify call is logged to the
+  shared PostgreSQL database and surfaced as a live dashboard: performance
+  timing broken down per pipeline step, tamper-frequency by field, a
+  test-coverage matrix, and the blockchain anchor log.
 - **Certificate preview**: renders the actual calibration certificate as a
   branded PDF (via ReportLab) directly in the Seal/Verify tabs.
 
@@ -50,7 +50,7 @@ customer forwards the plain certificate to their auditor, not a crypto
 bundle.
 
 The fix: at seal time, the proof is published independently to a
-Verification Registry (`data/verification_registry.db`, keyed by
+Verification Registry (the `verification_registry` table, keyed by
 certificate number), in addition to the ZIP NPL keeps for its own
 archival. A third party can then verify with nothing but the document
 itself, hitting `POST /api/public/verify` with just the plain XML, no
@@ -63,6 +63,11 @@ drifted apart during development and produced an incorrect result before
 the drift was caught, so they were merged into the single table
 described above: one row per certificate, written once per seal, read by
 the one verification endpoint. See `core/verification_db.py`.
+
+Both this table and the Audit Log now live in a shared **PostgreSQL**
+database (see "Shared database" below) rather than per-machine SQLite
+files, so multiple machines, yours and a colleague's, can query the same
+live registry and audit history at once.
 
 This splits the project into three static pages sharing one backend:
 
@@ -93,9 +98,9 @@ directory.
 core/                  Cryptographic + parsing modules (signer, encryptor,
                         merkle, xml_parser, timestamper, audit_db,
                         verification_db, verification_service,
-                        batch_anchor, pdf_generator), plus startup.py
-                        (first-boot key/DB bring-up) and auth.py
-                        (dashboard access gate)
+                        batch_anchor, pdf_generator), plus db.py (shared
+                        PostgreSQL engine/session), startup.py (first-boot
+                        key/DB bring-up), and auth.py (dashboard access gate)
 backend/api.py          FastAPI app - seal/verify/verification/audit/batch endpoints
 frontend/landing/       Portal picker page, served at "/"
 frontend/internal/      NPL's dashboard (served at "/dashboard"): Seal, Decrypt,
@@ -105,14 +110,18 @@ frontend/public/        Standalone public verification page, served at "/verify"
 frontend/shared/        CSS shared by all three pages (mounted at /shared)
 tests/                  Unit tests (hasher/merkle/signer) + comprehensive pytest
                         suites that exercise the full pipeline against a live server
-scripts/                Data-seeding utilities for the audit dashboard, and the
+scripts/                Data-seeding utilities for the audit dashboard, the
                         one-time public_registry.db + verification_registry.db
-                        merge (migrate_registries.py)
+                        merge (migrate_registries.py), and the SQLite ->
+                        PostgreSQL migration utility (migrate_to_postgres.py)
 cli.py                  Command-line seal/verify, independent of the web UI
 keygen.py               RSA key-pair generation (interactive or scripted)
-Dockerfile,             Containerization: image build, local dev, and the
-docker-compose.yml,     directories/secrets deliberately excluded from the
-.dockerignore           image itself (see "Deployment")
+Dockerfile,             Containerization for the FastAPI app itself: image
+.dockerignore           build, directories/secrets deliberately excluded from
+                        the image (see "Deployment: the app itself"). Not
+                        currently run by docker-compose.yml (see below).
+docker-compose.yml      Runs ONLY the shared PostgreSQL + Adminer stack (see
+                        "Shared database"); does not containerize the app.
 ```
 
 ## Setup
@@ -124,20 +133,24 @@ pip install -r requirements.txt
 python keygen.py                # generates keys/private_key.pem + public_key.pem
 ```
 
-Blockchain anchoring needs a `.env` file (not committed) with:
+Copy `.env.example` to `.env` and fill in real values (`.env` is
+gitignored, never commit it). At minimum you need:
 
 ```
+DATABASE_URL=postgresql://user:password@host:5432/npl_docseal
 SEPOLIA_RPC_URL=...
 SEPOLIA_PRIVATE_KEY=0x...
 SEPOLIA_WALLET=0x...
 ```
 
-The Verification Registry's SQLite file location is also overridable via
-`.env` (optional - defaults to `data/verification_registry.db` if unset):
-
-```
-VERIFICATION_DB_PATH=data/verification_registry.db
-```
+`DATABASE_URL` is required: the app now stores the Verification Registry
+and Audit Log in PostgreSQL, not local SQLite files, so it always needs a
+real database to connect to, even for local development. The quickest way
+to get one running locally is the bundled `docker-compose.yml` (see
+"Shared database" below); `POSTGRES_USER`/`POSTGRES_PASSWORD`/
+`POSTGRES_DB` in `.env` configure that local container, and `DATABASE_URL`
+should point at it (or, for a real shared setup, at wherever the database
+is actually hosted, see "Shared database").
 
 ## Running it
 
@@ -175,59 +188,110 @@ real Sepolia testnet gas per run, and isn't meant to gate every merge.
 
 ## Deployment
 
-The app is containerized so it runs identically anywhere, persists its
-databases and keys across restarts, and is safe to expose publicly.
+There are two independent things that can be deployed here: the shared
+**database** (so multiple machines see the same Verification Registry and
+Audit Log), and the **app itself** (so it's reachable at a public URL
+instead of only `localhost`). They don't depend on each other, you can
+run the app locally against a shared cloud database, or run everything
+locally, or eventually deploy both.
 
-### Docker
+### Shared database (PostgreSQL)
+
+`docker-compose.yml` at the project root runs **only** PostgreSQL and
+Adminer (a web GUI for browsing the database); it does not containerize
+the FastAPI app.
+
+**Local development:**
+
+```bash
+docker compose up -d
+```
+
+This starts Postgres (with a named volume, so data survives container
+restarts and even a full `docker compose down && docker compose up`) and
+Adminer at `http://localhost:8080`. Log into Adminer with System:
+PostgreSQL, Server: `postgres` (the Docker service name, not `localhost`,
+Adminer runs in its own container), and the username/password/database
+from your `.env`. Point `DATABASE_URL` in `.env` at this same local
+instance, then run the app normally (`uvicorn backend.api:app ...`); it
+creates the `verification_registry` and `audit_log` tables on first
+startup.
+
+**Migrating existing local SQLite data:**
+
+If you have pre-existing `data/verification_registry.db` and/or
+`data/audit_log.db` files from before this migration, copy every row
+across (once, safely re-runnable) with:
+
+```bash
+python scripts/migrate_to_postgres.py
+```
+
+This only reads the SQLite files (never modifies or deletes them, keep
+them as a backup) and preserves every field exactly, including original
+audit log ids and certificate data. See the docstring at the top of that
+script for full details on conflict handling and re-run safety.
+
+**Deploying the database to a cloud VM** (so more than one machine can
+reach it, e.g. Oracle Cloud's Always Free tier):
+
+1. Provision a small VM (Oracle Cloud's Always Free Ampere instance
+   works well) and install Docker on it.
+2. Copy `docker-compose.yml` and a real `.env` (with `POSTGRES_USER`,
+   `POSTGRES_PASSWORD`, `POSTGRES_DB` set, never commit this file) to the
+   VM.
+3. `docker compose up -d` on the VM.
+4. Open the VM's firewall/security-list for the Postgres port (5432) and
+   Adminer's port (8080) if you want remote GUI access too. Restrict
+   these to known IPs where possible rather than the whole internet.
+5. On every client machine (yours, a colleague's), set `DATABASE_URL` in
+   their own local `.env` to point at the VM's address instead of
+   `localhost`, e.g. `postgresql://user:password@<vm-ip>:5432/npl_docseal`.
+   Everyone's local app now reads and writes the same shared registry and
+   audit log.
+
+### The app itself (optional, for later)
+
+Separately from the database, the FastAPI app can also be containerized
+and deployed publicly using the standalone `Dockerfile` (not orchestrated
+by `docker-compose.yml`, which is dedicated to the database stack above).
+This is dormant until you actually want the app reachable at a public
+URL; nothing about the database migration requires it.
 
 ```bash
 docker build -t npl-docseal .
 docker run -p 8000:8000 \
-    -v "$(pwd)/data:/app/data" \
     -v "$(pwd)/keys:/app/keys" \
     -v "$(pwd)/sealed:/app/sealed" \
     --env-file .env \
-    -e DASHBOARD_PASSWORD=your-password-here \
     npl-docseal
 ```
 
-`data/`, `keys/`, and `sealed/` are never baked into the image (see
+`keys/` and `sealed/` are never baked into the image (see
 `.dockerignore`): on a container with no mounted volumes, `core/startup.py`
 generates a fresh demo RSA keypair (passphrase from `DEMO_KEY_PASSPHRASE`,
-defaults to `demo-passphrase-change-me`) and initializes both empty
-databases on first boot, idempotently, so restarting an already-provisioned
-container never overwrites real keys or data. `GET /health` is the
-container healthcheck endpoint.
+defaults to `demo-passphrase-change-me`) if none exists. `DATABASE_URL`
+still needs to point at a real reachable PostgreSQL instance, either the
+same shared one from above, or a fresh one, since the app no longer has a
+local-file fallback. `GET /health` is the container healthcheck endpoint.
 
-### docker-compose (local testing)
-
-```bash
-docker compose up --build
-```
-
-This bind-mounts your local `data/`, `keys/`, and `sealed/` directories, so
-it behaves exactly like the non-Dockerized setup above: same persisted
-state, same keys. To confirm persistence actually works: seal a
-certificate, restart the container (`docker compose restart`), then verify
-that same certificate via `/verify`, it should still resolve, proving the
-Verification Registry survived the restart.
-
-### Deploying to Render (or Railway)
+**Deploying the app to Render (or Railway), once you want it public:**
 
 1. Push `Dockerfile`, `.dockerignore`, and all source to GitHub. Confirm
    `.gitignore` already excludes `keys/`, `data/`, and `.env` (it does).
-2. Create a new Render Web Service, connect the GitHub repo, select
-   "Docker" as the environment.
-3. Add a persistent disk mounted at `/app/data` and `/app/keys`. Without
-   this, every redeploy wipes the registry and regenerates keys, breaking
-   verifiability of every certificate issued before that redeploy.
-4. Set environment variables in Render's dashboard: `SEPOLIA_RPC_URL`,
+2. Create a new Web Service, connect the GitHub repo, select "Docker" as
+   the environment.
+3. Set environment variables in the platform's dashboard: `DATABASE_URL`
+   (pointing at your shared Postgres instance), `SEPOLIA_RPC_URL`,
    `SEPOLIA_WALLET`, `SEPOLIA_PRIVATE_KEY`, `DASHBOARD_PASSWORD`,
    `DEMO_KEY_PASSPHRASE`.
-5. Deploy. Render builds the Docker image and exposes a public
-   `.onrender.com` URL. Its root (`/`) is already the landing page per the
-   static mount order in `backend/api.py`, so visitors land on the portal
-   picker first.
+4. If you want sealed ZIPs/keys to persist across redeploys, add a
+   persistent disk mounted at `/app/keys`; without it, a fresh demo
+   keypair is generated on every redeploy (harmless, just not the same
+   key as before).
+5. Deploy. The platform builds the Docker image and exposes a public URL.
+   Its root (`/`) is already the landing page per the static mount order
+   in `backend/api.py`, so visitors land on the portal picker first.
 
 ### Access control on `/dashboard`
 
@@ -247,8 +311,8 @@ before. `POST /api/public/verify` is never gated, by design.
   per-user accounts.
 - No HTTPS termination configuration: hosting platforms handle this
   automatically.
-- No multi-container orchestration: SQLite files on a mounted volume are
-  sufficient at this scale, no separate DB container.
+- No orchestration beyond `docker compose` (Postgres + Adminer): plenty
+  for this scale, no Kubernetes/managed-database service needed.
 - Real Sepolia private keys are never committed, only ever supplied via
   `.env` (gitignored) or the hosting platform's secret store.
 
@@ -264,22 +328,24 @@ before. `POST /api/public/verify` is never gated, by design.
   endpoint (Decrypt, Verify Document, reading the audit log) is still
   open to anyone with network access. Fine for this project's current
   scope; a real deployment would need proper per-user auth.
-- The audit log is SQLite: sufficient at this scale, not intended to
-  migrate to a heavier database. `data/verification_registry.db` is kept
-  as its own SQLite file, separate from `data/audit_log.db`, with its own
-  SQLAlchemy engine and session; the two are never merged, and the
-  Verify Document / public verification flows never read from or write to
-  the audit log.
-- The Verification Registry (`data/verification_registry.db`) stores
+- The Verification Registry and Audit Log are two tables
+  (`verification_registry`, `audit_log`) in one shared PostgreSQL
+  database (`DATABASE_URL`), not separate SQLite files anymore. They're
+  still logically independent within that database: separate tables,
+  separate SQLAlchemy models, and the Verify Document / public
+  verification flows never read from or write to the audit log.
+- The Verification Registry (`verification_registry` table) stores
   `certificate_number`, `merkle_root`, `field_hashes`, `signature_hex`,
   `public_key_fingerprint`, `tx_hash`, `block_number`, `etherscan_url`,
   `sealed_at`, `issue_date`, `expiry_date`, `status`, and `created_at` -
   not the XML content itself, so it can never substitute for the sealed
   ZIP. There's no revoke/expire UI yet; `status` is settable today only
   by editing the row directly (or via `core.verification_service.register_certificate`).
-  `scripts/migrate_registries.py` is the one-time migration from the
-  earlier two-table architecture; it backs up rather than deletes
-  whatever it finds.
+  `scripts/migrate_registries.py` was the one-time migration from the
+  earlier two-table SQLite architecture; `scripts/migrate_to_postgres.py`
+  is the (separate, later) one-time migration from per-machine SQLite
+  files into the shared PostgreSQL database. Both back up rather than
+  delete whatever they find.
 - Public verification only accepts XML; PDF parsing is not implemented.
 - All blockchain anchoring targets Ethereum **Sepolia** (testnet) only;
   never mainnet.

@@ -1,15 +1,43 @@
+# NPL DocSeal: shared database stack.
+#
+# Only PostgreSQL and Adminer run in Docker here. The FastAPI app itself
+# is NOT containerized by this file: it runs locally on each client
+# machine (yours, a professor's, etc.) and connects to this shared
+# database over the network via DATABASE_URL, so everyone queries the
+# same live Verification Registry and Audit Log instead of separate
+# per-machine SQLite files.
+#
+# The standalone Dockerfile (for containerizing the whole app) is
+# unrelated to this file and untouched - it's still there for whenever
+# the app itself needs to go live, independent of this database stack.
 services:
-  npl-docseal:
-    build: .
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/app/data
-      - ./keys:/app/keys
-      - ./sealed:/app/sealed
-    env_file:
-      - path: ./.env
-        required: false
-    environment:
-      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
+  postgres:
+    image: postgres:16-alpine
     restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-npl_docseal}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      - POSTGRES_DB=${POSTGRES_DB:-npl_docseal}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-npl_docseal} -d ${POSTGRES_DB:-npl_docseal}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

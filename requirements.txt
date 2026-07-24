@@ -5,3 +5,4 @@ python-multipart
 reportlab
 web3
 sqlalchemy
+psycopg2-binary

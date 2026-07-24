@@ -1,65 +1,42 @@
 """
-verification_db.py: unified Verification Registry for NPL DocSeal.
+verification_db.py: Verification Registry table, in the shared
+PostgreSQL database (core/db.py).
 
 The single source of truth for third-party certificate verification.
-Formerly split across two independent tables (core/registry_db.py's
-public_registry.db, holding crypto proof; and this module's earlier lean
-verification_registry.db, holding lifecycle data) - merged here because
-two independently-written tables for the same certificate is a
-consistency hazard, not just duplication: they drifted apart during
-development and produced a wrong "0 fields tampered" result before the
-drift was caught. There is now exactly one row per certificate_number,
-so that failure mode is structurally impossible.
+Now lives as the verification_registry table inside the shared
+PostgreSQL database (DATABASE_URL) instead of its own local SQLite
+file, so multiple machines can query the same live registry. Migrated
+from the old per-machine data/verification_registry.db via
+scripts/migrate_to_postgres.py; that SQLite file is left untouched as
+a backup, never written to again.
 
-Still completely independent of core/audit_db.py (the Audit Log) - the
-Verify Document module and the public /verify page must never read from
-or write to the Audit Log database, and vice versa.
+Still completely independent of core/audit_db.py's table (audit_log) -
+the Verify Document module and the public /verify page must never read
+from or write to the Audit Log, and vice versa, even though both now
+live in the same PostgreSQL database.
 """
 
-import os
-import sqlite3
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import create_engine, Column, String, Text, DateTime, Integer, JSON, CheckConstraint
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import Column, String, Text, DateTime, Integer, JSON, CheckConstraint
 from sqlalchemy.exc import SQLAlchemyError
 
-# Read from an env var if set; otherwise fall back to the project's default
-# data location (same convention as core/audit_db.py used: a relative path
-# under data/, never hardcoded absolute).
-DB_PATH = Path(os.environ.get("VERIFICATION_DB_PATH", "data/verification_registry.db"))
-
-Base = declarative_base()
-
-# Columns added after the original lean schema shipped. Used by the
-# startup upgrade step in init_verification_db() to ALTER TABLE any of
-# these into an existing database without touching its existing rows.
-_NEW_COLUMNS = [
-    ("field_hashes", "JSON"),
-    ("signature_hex", "TEXT"),
-    ("public_key_fingerprint", "VARCHAR"),
-    ("tx_hash", "VARCHAR"),
-    ("block_number", "INTEGER"),
-    ("etherscan_url", "TEXT"),
-    ("sealed_at", "VARCHAR"),
-]
+from core.db import Base, engine, SessionLocal
 
 
 class VerificationRegistry(Base):
     __tablename__ = "verification_registry"
 
-    # Renamed from certificate_id: matches the field name used everywhere
-    # else in this codebase (parse_xml, the public verify.js page) and
-    # matches the legacy registry's column name it's replacing.
+    # Matches the field name used everywhere else in this codebase
+    # (parse_xml, the public verify.js page).
     certificate_number = Column(String, primary_key=True)
 
     merkle_root = Column(Text, nullable=False)
 
-    # Crypto/blockchain proof, migrated in from the legacy public registry.
-    # Nullable: a certificate can still be registered (and root/lifecycle
-    # checked) even if these aren't available for some reason.
+    # Crypto/blockchain proof. Nullable: a certificate can still be
+    # registered (and root/lifecycle checked) even if these aren't
+    # available for some reason.
     field_hashes = Column(JSON, nullable=True)
     signature_hex = Column(Text, nullable=True)
     public_key_fingerprint = Column(String, nullable=True)
@@ -88,68 +65,15 @@ class VerificationDBError(Exception):
     pass
 
 
-_engine = None
-_SessionLocal = None
-
-
-def _get_engine():
-    global _engine, _SessionLocal
-    if _engine is None:
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _engine = create_engine(
-            f"sqlite:///{DB_PATH}",
-            connect_args={"check_same_thread": False},
-        )
-        _SessionLocal = sessionmaker(bind=_engine)
-    return _engine
-
-
-def _upgrade_schema() -> None:
-    """
-    Idempotent, Alembic-free upgrade for databases created before the
-    crypto/blockchain fields (and the certificate_number rename) existed
-    on this table. Only ever renames/adds columns - never drops or
-    rewrites a row. Safe to run on every startup; a no-op once already
-    upgraded. No-ops entirely if the table itself doesn't exist yet
-    (create_all() in init_verification_db() handles that case with the
-    full up-to-date schema directly).
-    """
-    if not DB_PATH.exists():
-        return
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        existing = {row[1] for row in conn.execute("PRAGMA table_info(verification_registry)")}
-        if not existing:
-            return  # table doesn't exist yet; create_all() will make it fresh
-
-        # The original lean schema's primary key was named certificate_id.
-        if "certificate_id" in existing and "certificate_number" not in existing:
-            conn.execute("ALTER TABLE verification_registry RENAME COLUMN certificate_id TO certificate_number")
-            existing.discard("certificate_id")
-            existing.add("certificate_number")
-
-        for col_name, col_type in _NEW_COLUMNS:
-            if col_name not in existing:
-                conn.execute(f"ALTER TABLE verification_registry ADD COLUMN {col_name} {col_type}")
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def init_verification_db() -> None:
-    """Create the verification_registry table if it doesn't already exist,
-    and upgrade an existing table to the current schema if it predates the
-    crypto/blockchain columns. Called once at app startup; safe to call
-    more than once (idempotent)."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _upgrade_schema()
-    engine = _get_engine()
+    """Create the verification_registry table if it doesn't already
+    exist. Called once at app startup; safe to call more than once
+    (idempotent)."""
     Base.metadata.create_all(engine)
 
 
 def _session():
-    _get_engine()
-    return _SessionLocal()
+    return SessionLocal()
 
 
 def upsert_certificate(
