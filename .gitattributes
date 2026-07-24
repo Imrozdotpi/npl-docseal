@@ -1,0 +1,6 @@
+# Shell scripts must keep LF line endings on checkout, regardless of a
+# client's core.autocrlf setting - Windows' autocrlf=true otherwise
+# rewrites them to CRLF, and bash chokes on the stray \r in the shebang
+# and every line (exactly what happened pulling scripts/setup_shared_db.sh
+# onto a fresh Windows machine).
+*.sh text eol=lf
