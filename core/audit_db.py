@@ -1,20 +1,26 @@
 """
-audit_db.py: SQLite-backed audit logging for NPL DocSeal.
+audit_db.py: Audit Log table, in the shared PostgreSQL database
+(core/db.py).
 
 Logs every real /api/seal and /api/verify operation for the Audit Log
-dashboard (Tab 3). Uses only the stdlib sqlite3 module.
+dashboard (Tab 3). Now lives as the audit_log table inside the shared
+PostgreSQL database (DATABASE_URL) instead of its own local SQLite
+file, so multiple machines see the same live audit history. Migrated
+from the old per-machine data/audit_log.db via
+scripts/migrate_to_postgres.py; that SQLite file is left untouched as
+a backup, never written to again.
+
+Every public function here keeps its original signature and return
+shape (list[dict] / dict), so backend/api.py's audit endpoints needed
+no changes at all for this migration.
 """
 
 import json
-import sqlite3
-import threading
-from pathlib import Path
-from typing import Any, Optional
 
-DB_DIR = Path("data")
-DB_PATH = DB_DIR / "audit_log.db"
+from sqlalchemy import Column, Integer, String, Text, Float, func, case
+from sqlalchemy.exc import SQLAlchemyError
 
-_write_lock = threading.Lock()
+from core.db import Base, engine, SessionLocal
 
 _COLUMNS = [
     "timestamp", "operation_type", "filename", "file_size_bytes", "file_format",
@@ -28,65 +34,60 @@ _COLUMNS = [
     "test_scenario", "overall_status",
 ]
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS operations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TEXT NOT NULL,
-    operation_type TEXT NOT NULL,
-    filename TEXT,
-    file_size_bytes INTEGER,
-    file_format TEXT,
 
-    parse_duration_ms REAL,
-    merkle_duration_ms REAL,
-    sign_duration_ms REAL,
-    verify_sig_duration_ms REAL,
-    encrypt_duration_ms REAL,
-    decrypt_duration_ms REAL,
-    compare_duration_ms REAL,
-    blockchain_duration_ms REAL,
-    total_duration_ms REAL,
+class AuditLog(Base):
+    __tablename__ = "audit_log"
 
-    field_count INTEGER,
-    intact_count INTEGER,
-    tampered_count INTEGER,
-    missing_count INTEGER,
-    tampered_field_names TEXT,
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(String, nullable=False, index=True)
+    operation_type = Column(String, nullable=False, index=True)
+    filename = Column(String, nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+    file_format = Column(String, nullable=True)
 
-    signature_valid INTEGER,
-    root_matches INTEGER,
+    parse_duration_ms = Column(Float, nullable=True)
+    merkle_duration_ms = Column(Float, nullable=True)
+    sign_duration_ms = Column(Float, nullable=True)
+    verify_sig_duration_ms = Column(Float, nullable=True)
+    encrypt_duration_ms = Column(Float, nullable=True)
+    decrypt_duration_ms = Column(Float, nullable=True)
+    compare_duration_ms = Column(Float, nullable=True)
+    blockchain_duration_ms = Column(Float, nullable=True)
+    total_duration_ms = Column(Float, nullable=True)
 
-    tx_hash TEXT,
-    block_number INTEGER,
-    confirmation_time_ms REAL,
-    etherscan_url TEXT,
+    field_count = Column(Integer, nullable=True)
+    intact_count = Column(Integer, nullable=True)
+    tampered_count = Column(Integer, nullable=True)
+    missing_count = Column(Integer, nullable=True)
+    tampered_field_names = Column(Text, nullable=True)
 
-    test_scenario TEXT,
+    # Kept as 0/1 integers (not native Boolean): backend/api.py already
+    # builds these records as "1 if x else 0", so keeping the same
+    # storage type means zero changes needed there.
+    signature_valid = Column(Integer, nullable=True)
+    root_matches = Column(Integer, nullable=True)
 
-    overall_status TEXT NOT NULL
-);
+    tx_hash = Column(String, nullable=True)
+    block_number = Column(Integer, nullable=True)
+    confirmation_time_ms = Column(Float, nullable=True)
+    etherscan_url = Column(Text, nullable=True)
 
-CREATE INDEX IF NOT EXISTS idx_timestamp ON operations(timestamp);
-CREATE INDEX IF NOT EXISTS idx_operation_type ON operations(operation_type);
-"""
+    test_scenario = Column(String, nullable=True)
+    overall_status = Column(String, nullable=False)
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    return conn
+def _session():
+    return SessionLocal()
+
+
+def _obj_to_dict(obj: "AuditLog") -> dict:
+    return {c.name: getattr(obj, c.name) for c in AuditLog.__table__.columns}
 
 
 def init_db() -> None:
-    """Create data/ dir and audit_log.db with schema if not already present."""
-    DB_DIR.mkdir(parents=True, exist_ok=True)
-    with _write_lock:
-        conn = _connect()
-        try:
-            conn.executescript(_SCHEMA)
-            conn.commit()
-        finally:
-            conn.close()
+    """Create the audit_log table (and its indexes) if it doesn't
+    already exist. Safe to call more than once (idempotent)."""
+    Base.metadata.create_all(engine)
 
 
 def log_operation(record: dict) -> int:
@@ -99,82 +100,79 @@ def log_operation(record: dict) -> int:
     if row.get("tampered_field_names") is not None and not isinstance(row["tampered_field_names"], str):
         row["tampered_field_names"] = json.dumps(row["tampered_field_names"])
 
-    columns = ", ".join(_COLUMNS)
-    placeholders = ", ".join(f":{c}" for c in _COLUMNS)
-
-    with _write_lock:
-        conn = _connect()
-        try:
-            cur = conn.execute(
-                f"INSERT INTO operations ({columns}) VALUES ({placeholders})", row
-            )
-            conn.commit()
-            return cur.lastrowid
-        finally:
-            conn.close()
-
-
-def _row_to_dict(row: sqlite3.Row) -> dict:
-    return dict(row)
+    session = _session()
+    try:
+        entry = AuditLog(**row)
+        session.add(entry)
+        session.commit()
+        session.refresh(entry)
+        return entry.id
+    finally:
+        session.close()
 
 
 def get_all_operations(limit: int = 500) -> list[dict]:
     """Return most recent operations, newest first."""
-    conn = _connect()
+    session = _session()
     try:
-        cur = conn.execute(
-            "SELECT * FROM operations ORDER BY id DESC LIMIT ?", (limit,)
+        rows = (
+            session.query(AuditLog)
+            .order_by(AuditLog.id.desc())
+            .limit(limit)
+            .all()
         )
-        return [_row_to_dict(r) for r in cur.fetchall()]
+        return [_obj_to_dict(r) for r in rows]
     finally:
-        conn.close()
+        session.close()
 
 
 def get_operations_since(timestamp_iso: str) -> list[dict]:
     """For polling: returns rows with timestamp > given value, oldest first."""
-    conn = _connect()
+    session = _session()
     try:
-        cur = conn.execute(
-            "SELECT * FROM operations WHERE timestamp > ? ORDER BY timestamp ASC",
-            (timestamp_iso,),
+        rows = (
+            session.query(AuditLog)
+            .filter(AuditLog.timestamp > timestamp_iso)
+            .order_by(AuditLog.timestamp.asc())
+            .all()
         )
-        return [_row_to_dict(r) for r in cur.fetchall()]
+        return [_obj_to_dict(r) for r in rows]
     finally:
-        conn.close()
+        session.close()
 
 
 def get_summary_stats() -> dict:
-    conn = _connect()
+    session = _session()
     try:
-        total_operations = conn.execute("SELECT COUNT(*) FROM operations").fetchone()[0]
-        total_seals = conn.execute(
-            "SELECT COUNT(*) FROM operations WHERE operation_type = 'seal'"
-        ).fetchone()[0]
-        total_verifies = conn.execute(
-            "SELECT COUNT(*) FROM operations WHERE operation_type = 'verify'"
-        ).fetchone()[0]
+        total_operations = session.query(func.count(AuditLog.id)).scalar()
+        total_seals = session.query(func.count(AuditLog.id)).filter(
+            AuditLog.operation_type == "seal"
+        ).scalar()
+        total_verifies = session.query(func.count(AuditLog.id)).filter(
+            AuditLog.operation_type == "verify"
+        ).scalar()
 
-        avg_seal_duration_ms = conn.execute(
-            "SELECT AVG(total_duration_ms) FROM operations WHERE operation_type = 'seal'"
-        ).fetchone()[0]
-        avg_verify_duration_ms = conn.execute(
-            "SELECT AVG(total_duration_ms) FROM operations WHERE operation_type = 'verify'"
-        ).fetchone()[0]
+        avg_seal_duration_ms = session.query(func.avg(AuditLog.total_duration_ms)).filter(
+            AuditLog.operation_type == "seal"
+        ).scalar()
+        avg_verify_duration_ms = session.query(func.avg(AuditLog.total_duration_ms)).filter(
+            AuditLog.operation_type == "verify"
+        ).scalar()
 
-        totals = conn.execute(
-            "SELECT COALESCE(SUM(field_count),0), COALESCE(SUM(intact_count),0), "
-            "COALESCE(SUM(tampered_count),0) FROM operations"
-        ).fetchone()
-        total_fields_checked, total_intact, total_tampered = totals
+        total_fields_checked, total_intact, total_tampered = session.query(
+            func.coalesce(func.sum(AuditLog.field_count), 0),
+            func.coalesce(func.sum(AuditLog.intact_count), 0),
+            func.coalesce(func.sum(AuditLog.tampered_count), 0),
+        ).one()
 
-        pass_count = conn.execute(
-            "SELECT COUNT(*) FROM operations WHERE overall_status = 'PASS'"
-        ).fetchone()[0]
+        pass_count = session.query(func.count(AuditLog.id)).filter(
+            AuditLog.overall_status == "PASS"
+        ).scalar()
         pass_rate_percent = (pass_count / total_operations * 100.0) if total_operations else 0.0
 
-        avg_blockchain_confirmation_ms = conn.execute(
-            "SELECT AVG(confirmation_time_ms) FROM operations WHERE confirmation_time_ms IS NOT NULL"
-        ).fetchone()[0]
+        avg_blockchain_confirmation_ms = session.query(
+            func.avg(AuditLog.confirmation_time_ms)
+        ).filter(AuditLog.confirmation_time_ms.isnot(None)).scalar()
 
         return {
             "total_operations": total_operations,
@@ -189,18 +187,20 @@ def get_summary_stats() -> dict:
             "avg_blockchain_confirmation_ms": avg_blockchain_confirmation_ms,
         }
     finally:
-        conn.close()
+        session.close()
 
 
 def get_field_tamper_frequency() -> dict:
     """{field_name: tamper_count} across all logged operations."""
-    conn = _connect()
+    session = _session()
     try:
-        cur = conn.execute(
-            "SELECT tampered_field_names FROM operations WHERE tampered_field_names IS NOT NULL"
+        rows = (
+            session.query(AuditLog.tampered_field_names)
+            .filter(AuditLog.tampered_field_names.isnot(None))
+            .all()
         )
         freq: dict[str, int] = {}
-        for (raw,) in cur.fetchall():
+        for (raw,) in rows:
             try:
                 names = json.loads(raw)
             except (TypeError, ValueError):
@@ -211,51 +211,64 @@ def get_field_tamper_frequency() -> dict:
                 freq[name] = freq.get(name, 0) + 1
         return freq
     finally:
-        conn.close()
+        session.close()
 
 
 def get_test_coverage_matrix() -> list[dict]:
     """Rows grouped by (file_format, test_scenario) with pass/fail counts."""
-    conn = _connect()
+    session = _session()
     try:
-        cur = conn.execute(
-            """
-            SELECT
-                COALESCE(file_format, 'unknown') AS file_format,
-                COALESCE(test_scenario, 'real_usage') AS test_scenario,
-                SUM(CASE WHEN overall_status = 'PASS' THEN 1 ELSE 0 END) AS pass_count,
-                SUM(CASE WHEN overall_status = 'FAIL' THEN 1 ELSE 0 END) AS fail_count
-            FROM operations
-            GROUP BY file_format, test_scenario
-            ORDER BY file_format, test_scenario
-            """
+        file_format = func.coalesce(AuditLog.file_format, "unknown").label("file_format")
+        test_scenario = func.coalesce(AuditLog.test_scenario, "real_usage").label("test_scenario")
+        pass_count = func.sum(
+            case((AuditLog.overall_status == "PASS", 1), else_=0)
+        ).label("pass_count")
+        fail_count = func.sum(
+            case((AuditLog.overall_status == "FAIL", 1), else_=0)
+        ).label("fail_count")
+
+        rows = (
+            session.query(file_format, test_scenario, pass_count, fail_count)
+            .group_by(file_format, test_scenario)
+            .order_by(file_format, test_scenario)
+            .all()
         )
-        return [_row_to_dict(r) for r in cur.fetchall()]
+        return [
+            {
+                "file_format": r.file_format,
+                "test_scenario": r.test_scenario,
+                "pass_count": r.pass_count,
+                "fail_count": r.fail_count,
+            }
+            for r in rows
+        ]
     finally:
-        conn.close()
+        session.close()
 
 
 def get_duration_breakdown_series(operation_type: str, limit: int = 50) -> list[dict]:
     """Last N operations of a given type with step-by-step duration breakdown, oldest first."""
-    conn = _connect()
+    session = _session()
     try:
-        cur = conn.execute(
-            "SELECT * FROM operations WHERE operation_type = ? ORDER BY id DESC LIMIT ?",
-            (operation_type, limit),
+        rows = (
+            session.query(AuditLog)
+            .filter(AuditLog.operation_type == operation_type)
+            .order_by(AuditLog.id.desc())
+            .limit(limit)
+            .all()
         )
-        rows = [_row_to_dict(r) for r in cur.fetchall()]
-        rows.reverse()
-        return rows
+        result = [_obj_to_dict(r) for r in rows]
+        result.reverse()
+        return result
     finally:
-        conn.close()
+        session.close()
 
 
 def clear_all_logs() -> None:
-    """Wipe the operations table."""
-    with _write_lock:
-        conn = _connect()
-        try:
-            conn.execute("DELETE FROM operations")
-            conn.commit()
-        finally:
-            conn.close()
+    """Wipe the audit_log table."""
+    session = _session()
+    try:
+        session.query(AuditLog).delete()
+        session.commit()
+    finally:
+        session.close()
