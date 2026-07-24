@@ -111,9 +111,9 @@ frontend/shared/        CSS shared by all three pages (mounted at /shared)
 tests/                  Unit tests (hasher/merkle/signer) + comprehensive pytest
                         suites that exercise the full pipeline against a live server
 scripts/                Data-seeding utilities for the audit dashboard, the
-                        one-time public_registry.db + verification_registry.db
-                        merge (migrate_registries.py), and the SQLite ->
-                        PostgreSQL migration utility (migrate_to_postgres.py)
+                        SQLite -> PostgreSQL migration utility
+                        (migrate_to_postgres.py), and setup_shared_db.sh
+                        for bootstrapping the Postgres/Adminer stack
 cli.py                  Command-line seal/verify, independent of the web UI
 keygen.py               RSA key-pair generation (interactive or scripted)
 Dockerfile,             Containerization for the FastAPI app itself: image
@@ -341,11 +341,9 @@ before. `POST /api/public/verify` is never gated, by design.
   not the XML content itself, so it can never substitute for the sealed
   ZIP. There's no revoke/expire UI yet; `status` is settable today only
   by editing the row directly (or via `core.verification_service.register_certificate`).
-  `scripts/migrate_registries.py` was the one-time migration from the
-  earlier two-table SQLite architecture; `scripts/migrate_to_postgres.py`
-  is the (separate, later) one-time migration from per-machine SQLite
-  files into the shared PostgreSQL database. Both back up rather than
-  delete whatever they find.
+  `scripts/migrate_to_postgres.py` is the one-time migration from
+  per-machine SQLite files into the shared PostgreSQL database; it backs
+  up rather than deletes whatever it finds.
 - Public verification only accepts XML; PDF parsing is not implemented.
 - All blockchain anchoring targets Ethereum **Sepolia** (testnet) only;
   never mainnet.
