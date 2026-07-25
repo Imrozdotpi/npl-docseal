@@ -3,7 +3,7 @@
 Cryptographic sealing and verification for calibration certificates, tamper-evident at the field level, no password or bundle required.
 
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
-![license](https://img.shields.io/badge/license-TBD-lightgrey)
+![license](https://img.shields.io/badge/license-MIT-green)
 
 **Live demo:** [ placeholder, deployed URL TBD ]
 
@@ -92,6 +92,8 @@ Open `http://127.0.0.1:8000` for the portal picker, `/dashboard` for the interna
 
 ## License / Author
 
-License: [ placeholder, TBD, no LICENSE file yet ]
+License: [MIT](LICENSE)
 
-Author: [ placeholder, author/team name ]
+Authors:
+- [Imroz Kamboj](https://github.com/Imrozdotpi)
+- [Karan Chauhan](https://github.com/Karan-11-Coder)
