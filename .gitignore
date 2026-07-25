@@ -2,8 +2,9 @@ keys/
 sealed/
 data/
 __pycache__/
+.pytest_cache/
 *.pyc
+venv/
 .env
 ots-env/
-
-.env
+.claude/
